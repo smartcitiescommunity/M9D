@@ -1,24 +1,25 @@
 # ======================================================================
-# APLICACIÓN DE PRODUCCIÓN MoW (M9D^X) v2.8 (con Carga de Demo)
+# APLICACIÓN DE PRODUCCIÓN MoW (M9D^X) v2.9 (Demo + Import/Export)
 # ======================================================================
 # Autor: Gemini (Basado en la co-creación con el usuario)
-# Stack v2.8:
+# Stack v2.9:
 # - GUI: Python, Tkinter, ttkbootstrap
 # - Base de Datos: Driver intercambiable (SQLite / MySQL)
 # - Modelos: Numpy, Pandas (para AHP, M9D)
 # - ML: Scikit-learn (para MoW)
 # - Grafos: NetworkX (para análisis de conexiones)
 # - IA Cualitativa: Conexión Ollama (list, show, generate)
-# - E/S: Exportación (PDF/CSV/JSON), Importación (CSV)
+# - E/S: Exportación (PDF/CSV/JSON), Importación (CSV, JSON)
 # - Producción: Threading y Queue (GUI no bloqueante)
 # ----------------------------------------------------------------------
-# FIX v2.8:
+# FIX v2.9:
 # 1. (Tu sugerencia) Añadido botón "Cargar Set de Proyectos Demo"
 #    para resolver el problema de "arranque en frío" (cold start).
 # 2. Corregido 'SyntaxError: unterminated string literal' en T_LABELS_SHORT.
 # 3. Corregido 'AttributeError: prompt' usando simpledialog.
 # 4. Corregido 'TclError: can't add ... as slave' en GUI.
-# 5. Añadida la clase 'IAGenerator' que faltaba.
+# 5. Añadida la clase 'IAGenerator' (antes faltaba).
+# 6. Añadido botón "Importar Proyecto (M9D JSON)".
 # ======================================================================
 
 import tkinter as tk
@@ -176,16 +177,30 @@ class M9DModel:
                 "project_id": self.project_id,
                 "error": f"Datos no encontrados para el momento {moment}"
              }
+        # Asegurarse de que los resultados VME/PBT para ese momento estén calculados
+        if moment not in self.vme_results:
+            self.calculate_vme(moment)
+            
         return {
             "project_name": self.project_name,
             "project_id": self.project_id,
-            "strategy_w_i": self.w_i.tolist(),
-            "scores_S_ij": self.scores[moment].tolist(),
-            "pbt_matrix": self.pbt_results[moment].tolist(),
-            "vme_result": self.vme_results[moment].tolist()
+            "strategy": {
+                "w_i": self.w_i.tolist(),
+                "v_j": {
+                    "past": self.v_j['past'].tolist(),
+                    "present": self.v_j['present'].tolist(),
+                    "future": self.v_j['future'].tolist()
+                }
+            },
+            "reality": {
+                "moment": moment,
+                "scores_S_ij": self.scores[moment].tolist(),
+                "pbt_matrix": self.pbt_results[moment].tolist(),
+                "vme_result": self.vme_results[moment].tolist()
+            }
         }
 
-# FIX v2.8: Añadida la clase IAGenerator que faltaba
+# FIX v2.8: Añadida la clase IAGenerator
 class IAGenerator:
     """Genera juicios y puntuaciones para simular a un equipo de expertos."""
     
@@ -618,10 +633,7 @@ class AHPEditorWindow(Toplevel):
         
         self.ahp_frames: Dict[str, AHPSliderFrame] = {}
         
-        # FIX v2.7: El ScrolledFrame debe ir DENTRO de un Frame contenedor
-        # que es el que se añade a la pestaña del notebook.
-        
-        # --- Pestaña Dimensiones (9x9) ---
+        # FIX v2.7: Contenedor para el ScrolledFrame
         tab_dims_container = btk.Frame(self.notebook, padding=0)
         frame_dims_scrolled = ScrolledFrame(tab_dims_container, autohide=True)
         frame_dims_scrolled.pack(fill="both", expand=True)
@@ -629,7 +641,6 @@ class AHPEditorWindow(Toplevel):
         self.ahp_frames['dimensions'].pack(fill="both", expand=True)
         self.notebook.add(tab_dims_container, text="Dimensiones (9x9)")
 
-        # --- Pestañas Grupos Temporales (3x3) ---
         groups = [('past', T_LABELS_SHORT[0:3]), 
                   ('present', T_LABELS_SHORT[3:6]), 
                   ('future', T_LABELS_SHORT[6:9])]
@@ -741,6 +752,7 @@ class MainApplication(btk.Window):
         proj_frame = btk.Labelframe(frame, text="Gestión de Proyectos", padding=10)
         proj_frame.pack(fill="x", pady=5)
         btk.Button(proj_frame, text="Crear Nuevo Proyecto...", command=self.on_create_project, bootstyle="info").pack(fill="x", pady=5)
+        btk.Button(proj_frame, text="Importar Proyecto (M9D JSON)...", command=self.on_import_project_json, bootstyle="info").pack(fill="x", pady=5)
         
         # --- NUEVO BOTÓN DEMO (v2.8) ---
         btk.Button(proj_frame, text="Cargar Set de Proyectos Demo", command=self.on_load_demo_data, bootstyle="warning-outline").pack(fill="x", pady=(10, 5))
@@ -956,6 +968,52 @@ class MainApplication(btk.Window):
             messagebox.showerror("Error de Entrada", "El ID de la estrategia debe ser un número.")
         except Exception as e:
             messagebox.showerror("Error al Crear", str(e))
+    
+    def on_import_project_json(self):
+        """(NUEVO v2.9) Importa un proyecto completo desde un archivo JSON M9D."""
+        try:
+            filepath = filedialog.askopenfilename(
+                title="Importar Proyecto (Formato M9D JSON)",
+                filetypes=[("M9D JSON Files", "*.json"), ("All Files", "*.*")]
+            )
+            if not filepath: return
+            
+            self.set_status(f"Importando proyecto M9D desde {filepath}...")
+            
+            with open(filepath, 'r', encoding='utf-8') as f:
+                data = json.load(f)
+            
+            # 1. Validar y guardar la Estrategia
+            if 'strategy' not in data or 'project_name' not in data or 'reality' not in data:
+                raise ValueError("Archivo JSON no es un formato M9D válido. Faltan claves.")
+            
+            strategy_data = data['strategy']
+            # Simular un AHP para obtener CR
+            temp_weights = {'w_i': np.array(strategy_data['w_i']), 'v_j': {}}
+            for group, weights in strategy_data['v_j'].items():
+                temp_weights['v_j'][group] = np.array(weights)
+            
+            # (Simplificación: asumimos CR=0, ya que no tenemos la matriz de juicio)
+            # En una v3.0, el JSON debería guardar la matriz de juicio.
+            strategy_name = f"Importada - {data['project_name']}"
+            strategy_id = self.db.save_strategy(strategy_name, temp_weights, 0.0)
+
+            # 2. Guardar el Proyecto
+            project_id = self.db.save_project(data['project_name'], strategy_id)
+            
+            # 3. Guardar la Realidad
+            reality_data = data['reality']
+            moment = reality_data.get('moment', 't0')
+            scores_matrix = np.array(reality_data['scores_S_ij'])
+            
+            self.db.save_reality(project_id, moment, scores_matrix)
+            
+            self.set_status(f"Proyecto '{data['project_name']}' importado exitosamente.")
+            self.load_portfolio_from_db()
+
+        except Exception as e:
+            messagebox.showerror("Error de Importación JSON", str(e))
+            self.set_status(f"Error al importar JSON: {e}")
 
     def on_load_demo_data(self):
         """(NUEVO v2.8) Carga un set de datos demo en la DB."""
