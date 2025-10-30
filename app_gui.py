@@ -12,17 +12,18 @@
 # - E/S: Exportación (PDF/CSV/JSON), Importación (CSV)
 # - Producción: Threading y Queue (GUI no bloqueante)
 # ----------------------------------------------------------------------
-# FIX v2.8 (Tu sugerencia):
-# 1. Añadido botón "Cargar Set de Proyectos Demo" para resolver
-#    el problema de "arranque en frío" (cold start).
+# FIX v2.8:
+# 1. (Tu sugerencia) Añadido botón "Cargar Set de Proyectos Demo"
+#    para resolver el problema de "arranque en frío" (cold start).
 # 2. Corregido 'SyntaxError: unterminated string literal' en T_LABELS_SHORT.
-# 3. Corregido 'TclError: can't add ... as slave' en AHPEditorWindow.
-# pip install ttkbootstrap numpy pandas scikit-learn matplotlib seaborn sqlalchemy reportlab requests networkx
+# 3. Corregido 'AttributeError: prompt' usando simpledialog.
+# 4. Corregido 'TclError: can't add ... as slave' en GUI.
+# 5. Añadida la clase 'IAGenerator' que faltaba.
 # ======================================================================
 
 import tkinter as tk
 from tkinter import ttk, messagebox, filedialog, Toplevel, Text, END, Scrollbar, Canvas, Frame
-from tkinter import simpledialog
+from tkinter import simpledialog # FIX v2.6
 import ttkbootstrap as btk
 from ttkbootstrap.scrolled import ScrolledFrame, ScrolledText
 import numpy as np
@@ -73,7 +74,7 @@ D_LABELS = [
     "D1: Propósito", "D2: Procesos", "D3: Tecnología", "D4: Comunidad",
     "D5: Solución", "D6: Territorio", "D7: Academia", "D8: S. Privado", "D9: S. Público"
 ]
-# FIX v2.7: Corregida la coma ('",') que causaba el SyntaxError
+# FIX v2.7: Corregida la coma ('",')
 T_LABELS_SHORT = ["T1(P+)", "T2(P-)", "T3(PN)", "T4(R+)", "T5(R-)", "T6(RN)", "T7(F+)", "T8(F-)", "T9(FN)"]
 VME_LABELS = ['Herencia (IH)', 'Situacional (IS)', 'Prospectiva (IP)']
 RI_SAATY = { 3: 0.58, 9: 1.45 }
@@ -133,7 +134,7 @@ class M9DModel:
         self.w_i = strategy_weights['w_i']
         self.v_j = strategy_weights['v_j']
         
-        self.scores: Dict[str, np.ndarray] = {} # Almacena 't0', 't1'
+        self.scores: Dict[str, np.ndarray] = {}
         self.vme_results: Dict[str, np.ndarray] = {}
         self.pbt_results: Dict[str, np.ndarray] = {}
 
@@ -183,6 +184,80 @@ class M9DModel:
             "pbt_matrix": self.pbt_results[moment].tolist(),
             "vme_result": self.vme_results[moment].tolist()
         }
+
+# FIX v2.8: Añadida la clase IAGenerator que faltaba
+class IAGenerator:
+    """Genera juicios y puntuaciones para simular a un equipo de expertos."""
+    
+    @staticmethod
+    def get_ahp_matrix(labels: List[str], importance_profile: Dict[str, float]) -> np.ndarray:
+        n = len(labels)
+        matrix = np.ones((n, n))
+        default_importance = importance_profile.get("default", 1.0)
+        imp_values = np.array([importance_profile.get(label, default_importance) for label in labels])
+        
+        for i in range(n):
+            for j in range(i + 1, n):
+                ratio = imp_values[i] / imp_values[j] * np.random.uniform(0.95, 1.05) # Ruido
+                matrix[i, j] = ratio
+                matrix[j, i] = 1.0 / ratio
+        return matrix
+    
+    @staticmethod
+    def generate_ahp_strategy(dim_profile: Dict, state_profile: Dict) -> Dict:
+        """Genera un diccionario de estrategia completo y validado."""
+        weights_to_save = {'v_j': {}}
+        
+        # 1. Validar Dimensiones (w_i)
+        matrix_dims = IAGenerator.get_ahp_matrix(D_LABELS, dim_profile)
+        validator_dims = AHPValidator(matrix_dims)
+        weights_dims, cr_dims = validator_dims.calculate()
+        
+        if cr_dims > 0.10: # Re-intentar si es inconsistente
+            return IAGenerator.generate_ahp_strategy(dim_profile, state_profile) 
+
+        weights_to_save['w_i'] = weights_dims
+        weights_to_save['cr_dims'] = cr_dims
+
+        # 2. Validar Estados (v_j)
+        for group in ['past', 'present', 'future']:
+            labels = [l for l in T_LABELS_SHORT if group in l.lower()]
+            matrix = IAGenerator.get_ahp_matrix(labels, state_profile[group])
+            validator = AHPValidator(matrix)
+            weights, cr = validator.calculate()
+            if cr > 0.10: # Re-intentar si es inconsistente
+                return IAGenerator.generate_ahp_strategy(dim_profile, state_profile)
+            weights_to_save['v_j'][group] = weights
+
+        return weights_to_save
+
+    @staticmethod
+    def get_scores_matrix(profile_name: str, base_scores: np.ndarray = None) -> np.ndarray:
+        """Genera una matriz de puntuaciones 9x9."""
+        PROFILES = {
+            "Neutro": {"mean": 0.0, "std": 0.1},
+            "Baseline Difícil": {"mean": -1.5, "std": 1.0},
+            "Baseline Optimista": {"mean": 1.0, "std": 1.0},
+            "Mejora Moderada": {"mean": 0.8, "std": 0.3},
+            "Mejora Alta": {"mean": 1.5, "std": 0.5},
+            "Crisis (D4,D9)": {"mean": -2.0, "std": 0.5, "dims": [3, 8]},
+            "Oportunidad (D3,D7)": {"mean": 2.0, "std": 0.5, "dims": [2, 6]}
+        }
+        
+        profile = PROFILES[profile_name]
+        scores = np.random.normal(loc=0.0, scale=0.5, size=(9, 9))
+
+        if base_scores is not None:
+            scores = base_scores.copy()
+            mejora = np.random.normal(loc=profile["mean"], scale=profile["std"], size=(9, 6))
+            scores[:, 3:9] += mejora
+        elif "dims" in profile:
+            for dim_index in profile["dims"]:
+                scores[dim_index, :] += np.random.normal(loc=profile["mean"], scale=profile["std"], size=9)
+        else:
+            scores = np.random.normal(loc=profile["mean"], scale=profile["std"], size=(9, 9))
+            
+        return np.clip(scores, -3, 3)
 
 # ======================================================================
 # SECCIÓN 3: CAPA DE BASE DE DATOS (database.py)
@@ -469,7 +544,7 @@ class ExportService:
         
         c.setFillColorRGB(0, 0, 0)
         c.setFont("Helvetica", 10)
-        c.drawString(inch, inch, f"Reporte generado por MOW v2.7 - {pd.Timestamp.now().strftime('%Y-%m-%d %H:%M')}")
+        c.drawString(inch, inch, f"Reporte generado por MOW v2.8 - {pd.Timestamp.now().strftime('%Y-%m-%d %H:%M')}")
         
         c.save()
 
@@ -560,7 +635,6 @@ class AHPEditorWindow(Toplevel):
                   ('future', T_LABELS_SHORT[6:9])]
         
         for name, labels in groups:
-            # No necesitan scroll, son 3x3
             frame = btk.Frame(self.notebook, padding=20) 
             self.notebook.add(frame, text=f"{name.capitalize()} (3x3)")
             self.ahp_frames[name] = AHPSliderFrame(frame, labels)
@@ -618,7 +692,7 @@ class AHPEditorWindow(Toplevel):
 class MainApplication(btk.Window):
 
     def __init__(self, db_manager: DatabaseManager):
-        super().__init__(title="MoW (M9D^X) - Plataforma de Análisis de Portafolio v2.7", themename="cyborg", size=(1500, 950))
+        super().__init__(title="MoW (M9D^X) - Plataforma de Análisis de Portafolio v2.8", themename="cyborg", size=(1500, 950))
         self.db = db_manager
         
         self.portfolio: Dict[int, M9DModel] = {}
@@ -888,7 +962,6 @@ class MainApplication(btk.Window):
         self.set_status("Cargando set de proyectos demo en segundo plano...")
         # Deshabilitar botones para evitar clics duplicados
         self.btn_run_mow.config(state="disabled")
-        self.btn_run_ollama.config(state="disabled")
         
         # Ejecutar la carga de datos en un hilo para no congelar la GUI
         threading.Thread(target=self.run_demo_data_thread, daemon=True).start()
@@ -905,21 +978,10 @@ class MainApplication(btk.Window):
                 "future": {"T8(F-)": 9.0, "default": 1.0}
             }
             
-            # --- Simular AHP ---
-            weights_to_save = {'v_j': {}}
-            matrix_dims = IAGenerator.get_ahp_matrix(D_LABELS, strategy_dims)
-            weights_dims, cr_dims = AHPValidator(matrix_dims).calculate()
-            weights_to_save['w_i'] = weights_dims
-            weights_to_save['cr_dims'] = cr_dims
-
-            for group in ['past', 'present', 'future']:
-                labels = [l for l in T_LABELS_SHORT if group in l.lower()]
-                matrix = IAGenerator.get_ahp_matrix(labels, strategy_states[group])
-                weights, cr = AHPValidator(matrix).calculate()
-                weights_to_save['v_j'][group] = weights
+            strategy_to_save = IAGenerator.generate_ahp_strategy(strategy_dims, strategy_states)
             
-            # Guardar Estrategia en DB
-            strategy_id = self.db.save_strategy("Estrategia Demo (Riesgo)", weights_to_save, cr_dims)
+            # Guardar Estrategia en DB (Usa 'upsert' de save_strategy)
+            strategy_id = self.db.save_strategy("Estrategia Demo (Riesgo)", strategy_to_save, strategy_to_save['cr_dims'])
 
             # 2. Crear Proyectos Demo
             project_profiles = {
@@ -1089,13 +1151,11 @@ class MainApplication(btk.Window):
                 self.set_status("Set de proyectos Demo cargado exitosamente. Refrescando...")
                 self.load_portfolio_from_db()
                 self.btn_run_mow.config(state="normal")
-                self.btn_run_ollama.config(state="normal")
                 
             elif result['type'] == 'demo_error':
                 messagebox.showerror("Error al Cargar Demo", result['data'])
                 self.set_status(f"Error al cargar datos demo: {result['data']}")
                 self.btn_run_mow.config(state="normal")
-                self.btn_run_ollama.config(state="normal")
                 
             elif result['type'] == 'mow_error':
                 messagebox.showerror("Error de Análisis MoW", result['data'])
