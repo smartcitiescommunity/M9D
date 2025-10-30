@@ -69,7 +69,7 @@ D_LABELS = [
     "D1: Propósito", "D2: Procesos", "D3: Tecnología", "D4: Comunidad",
     "D5: Solución", "D6: Territorio", "D7: Academia", "D8: S. Privado", "D9: S. Público"
 ]
-T_LABELS_SHORT = ["T1(P+)", "T2(P-)", "T3(PN)", "T4(R+)", "T5(R-)", "T6(RN)", "T7(F+)", "T8(F-)", "T9(FN)"]
+T_LABELS_SHORT = ["T1(P+)", "T2(P-)", "T3(PN)", "T4(R+)", "T5(R-)",", "T6(RN)", "T7(F+)", "T8(F-)", "T9(FN)"]
 VME_LABELS = ['Herencia (IH)', 'Situacional (IS)', 'Prospectiva (IP)']
 RI_SAATY = { 3: 0.58, 9: 1.45 }
 AHP_GROUPS = ['dimensions', 'past', 'present', 'future']
@@ -435,7 +435,7 @@ class ExportService:
         
         c.setFillColorRGB(0, 0, 0)
         c.setFont("Helvetica", 10)
-        c.drawString(inch, inch, f"Reporte generado por MOW v2.5 - {pd.Timestamp.now().strftime('%Y-%m-%d %H:%M')}")
+        c.drawString(inch, inch, f"Reporte generado por MOW v2.6 - {pd.Timestamp.now().strftime('%Y-%m-%d %H:%M')}")
         
         c.save()
 
@@ -573,7 +573,7 @@ class AHPEditorWindow(Toplevel):
 class MainApplication(btk.Window):
 
     def __init__(self, db_manager: DatabaseManager):
-        super().__init__(title="MoW (M9D^X) - Plataforma de Análisis de Portafolio v2.5", themename="cyborg", size=(1500, 950))
+        super().__init__(title="MoW (M9D^X) - Plataforma de Análisis de Portafolio v2.6", themename="cyborg", size=(1500, 950))
         self.db = db_manager
         
         self.portfolio: Dict[int, M9DModel] = {}
@@ -660,7 +660,6 @@ class MainApplication(btk.Window):
         frame = btk.Frame(parent, padding=10)
         self.charts_portfolio = {}
         
-        # --- Crear Sub-Pestañas ---
         mow_notebook = btk.Notebook(frame)
         mow_notebook.pack(fill="both", expand=True)
         
@@ -670,21 +669,18 @@ class MainApplication(btk.Window):
         mow_notebook.add(tab_cluster, text="  Análisis de Clúster  ")
         mow_notebook.add(tab_cause, text="  Análisis de Causa Raíz  ")
         
-        # --- Contenido de Pestaña "Análisis de Clúster" ---
         self.charts_portfolio['cluster_frame'] = btk.Labelframe(tab_cluster, text="Gráfico MoW 1: Clústeres de Proyectos (PCA)", padding=5)
         self.charts_portfolio['cluster_frame'].pack(side="left", fill="both", expand=True, padx=5, pady=5)
         
         self.charts_portfolio['cluster_radar_frame'] = btk.Labelframe(tab_cluster, text="Gráfico MoW 2: Perfiles de Clúster (VME)", padding=5)
         self.charts_portfolio['cluster_radar_frame'].pack(side="left", fill="both", expand=True, padx=5, pady=5)
 
-        # --- Contenido de Pestaña "Análisis de Causa Raíz" ---
         self.charts_portfolio['importance_frame'] = btk.Labelframe(tab_cause, text="Gráfico MoW 3: Causa Raíz de Clúster (RF)", padding=5)
         self.charts_portfolio['importance_frame'].pack(side="left", fill="both", expand=True, padx=5, pady=5)
         
         self.charts_portfolio['network_frame'] = btk.Labelframe(tab_cause, text="Gráfico MoW 4: Red de Similitud de Proyectos (NX)", padding=5)
         self.charts_portfolio['network_frame'].pack(side="left", fill="both", expand=True, padx=5, pady=5)
         
-        # --- Frame de Exportación (común) ---
         export_frame = btk.Labelframe(frame, text="Exportar Resultados Cuantitativos", padding=10)
         export_frame.pack(fill="x", pady=10)
         
@@ -1181,6 +1177,7 @@ class MainApplication(btk.Window):
             G = nx.from_pandas_adjacency(sim_df_adj)
             G.remove_edges_from(nx.selfloop_edges(G))
             
+            colors = plt.cm.get_cmap('viridis', self.spin_clusters.get())
             colors_map = cluster_df.set_index('ProjectID')['Cluster'].to_dict()
             node_colors = [colors(colors_map.get(node, -1) / (self.spin_clusters.get()-1)) for node in G.nodes()]
             
