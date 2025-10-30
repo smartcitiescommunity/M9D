@@ -1,16 +1,18 @@
 # ======================================================================
-# APLICACIÓN DE PRODUCCIÓN
+# APLICACIÓN DE PRODUCCIÓN MoW (M9D^X) v2.2 (Corregida)
 # ======================================================================
 # Autor: Gemini (Basado en la co-creación con el usuario)
-# Stack v2.1:
+# Stack v2.2:
 # - GUI: Python, Tkinter, ttkbootstrap
 # - Base de Datos: Driver intercambiable (SQLite / MySQL)
 # - Modelos: Numpy, Pandas (para AHP, M9D)
-# - ML: Scikit-learn (para M9D)
+# - ML: Scikit-learn (para MoW)
 # - IA Cualitativa: Conexión Ollama (list, show, generate)
 # - E/S: Exportación (PDF/CSV/JSON), Importación (CSV)
 # - Producción: Threading y Queue (GUI no bloqueante)
-# =---------------------------------------------------------------------
+# ----------------------------------------------------------------------
+# FIX v2.2: Corregido error 'can't add slave' de PanedWindow y
+#           anidamiento incorrecto de ScrolledFrames en AHPEditor.
 # ======================================================================
 
 import tkinter as tk
@@ -70,11 +72,6 @@ D_LABELS = [
     "D5: Solución", "D6: Territorio", "D7: Academia", "D8: S. Privado", "D9: S. Público"
 ]
 T_LABELS_SHORT = ["T1(P+)", "T2(P-)", "T3(PN)", "T4(R+)", "T5(R-)", "T6(RN)", "T7(F+)", "T8(F-)", "T9(FN)"]
-T_LABELS_FULL = [
-    "T1: Pasado +", "T2: Pasado -", "T3: Pasado N",
-    "T4: Presente +", "T5: Presente -", "T6: Presente N",
-    "T7: Futuro +", "T8: Futuro -", "T9: Futuro N"
-]
 VME_LABELS = ['Herencia (IH)', 'Situacional (IS)', 'Prospectiva (IP)']
 RI_SAATY = { 3: 0.58, 9: 1.45 }
 AHP_GROUPS = ['dimensions', 'past', 'present', 'future']
@@ -303,7 +300,7 @@ class AnalysisService:
         self.golden_strategy_vector = golden_strategy_vector
         
     def run_mow_pipeline(self, n_clusters: int, threshold: float, moment: str) -> Dict:
-        """Ejecuta el pipeline completo de 3 fases de M9D."""
+        """Ejecuta el pipeline completo de 3 fases de MoW."""
         # --- FASE 1: Filtro de Similitud ---
         project_ids = [model.project_id for model in self.platform.values()]
         strategy_vectors = [model.get_strategy_vector() for model in self.platform.values()]
@@ -436,7 +433,7 @@ class ExportService:
         
         c.setFillColorRGB(0, 0, 0)
         c.setFont("Helvetica", 10)
-        c.drawString(inch, inch, f"Reporte generado por M9D v2.1 - {pd.Timestamp.now().strftime('%Y-%m-%d %H:%M')}")
+        c.drawString(inch, inch, f"Reporte generado por MOW v2.1 - {pd.Timestamp.now().strftime('%Y-%m-%d %H:%M')}")
         
         c.save()
 
@@ -444,11 +441,12 @@ class ExportService:
 # SECCIÓN 6: INTERFAZ GRÁFICA (GUI)
 # ======================================================================
 
-# FIX: Esta es la clase corregida que usa ScrolledFrame de ttkbootstrap.scrolled
-class AHPSliderFrame(ScrolledFrame): 
-    """Un Frame Scrolleable que contiene N sliders AHP."""
+# FIX 2: Esta clase ahora hereda de btk.Frame. 
+# El scroll será provisto por su padre en AHPEditorWindow.
+class AHPSliderFrame(btk.Frame):
+    """Un Frame que contiene N sliders AHP."""
     def __init__(self, parent, labels: List[str]):
-        super().__init__(parent, autohide=True)
+        super().__init__(parent) # <-- FIX 2
         self.labels = labels
         self.n = len(labels)
         self.slider_vars: Dict[Tuple[int, int], tk.IntVar] = {}
@@ -514,17 +512,25 @@ class AHPEditorWindow(Toplevel):
         self.notebook.pack(fill="both", expand=True, pady=5, padx=5)
         
         # Crear los 4 frames de sliders
-        self.ahp_frames: Dict[str, AHPSliderFrame] = {
-            'dimensions': AHPSliderFrame(self.notebook, D_LABELS),
-            'past': AHPSliderFrame(self.notebook, T_LABELS_SHORT[0:3]),
-            'present': AHPSliderFrame(self.notebook, T_LABELS_SHORT[3:6]),
-            'future': AHPSliderFrame(self.notebook, T_LABELS_SHORT[6:9])
-        }
+        self.ahp_frames: Dict[str, AHPSliderFrame] = {}
         
-        self.notebook.add(self.ahp_frames['dimensions'], text="Dimensiones (9x9)")
-        self.notebook.add(self.ahp_frames['past'], text="Pasado (3x3)")
-        self.notebook.add(self.ahp_frames['present'], text="Presente (3x3)")
-        self.notebook.add(self.ahp_frames['future'], text="Futuro (3x3)")
+        # FIX 2: El 'ScrolledFrame' es el padre...
+        frame_dims_scrolled = ScrolledFrame(self.notebook, autohide=True) 
+        # ... y 'AHPSliderFrame' (que ahora es un Frame simple) va *dentro* de él.
+        self.ahp_frames['dimensions'] = AHPSliderFrame(frame_dims_scrolled, D_LABELS)
+        self.ahp_frames['dimensions'].pack(fill="both", expand=True)
+        self.notebook.add(frame_dims_scrolled, text="Dimensiones (9x9)")
+
+        groups = [('past', T_LABELS_SHORT[0:3]),
+                  ('present', T_LABELS_SHORT[3:6]),
+                  ('future', T_LABELS_SHORT[6:9])]
+        
+        for name, labels in groups:
+            # No necesitan scroll, son 3x3
+            frame = btk.Frame(self.notebook) 
+            self.notebook.add(frame, text=f"{name.capitalize()} (3x3)")
+            self.ahp_frames[name] = AHPSliderFrame(frame, labels)
+            self.ahp_frames[name].pack(fill="x", expand=True, padx=20, pady=20)
         
         bottom_frame = btk.Frame(self, padding=10)
         bottom_frame.pack(fill="x")
@@ -582,7 +588,7 @@ class AHPEditorWindow(Toplevel):
 class MainApplication(btk.Window):
 
     def __init__(self, db_manager: DatabaseManager):
-        super().__init__(title="M9D (M9D^X) - Plataforma de Análisis de Portafolio v2.1", themename="cyborg", size=(1500, 950))
+        super().__init__(title="MoW (M9D^X) - Plataforma de Análisis de Portafolio v2.2", themename="cyborg", size=(1500, 950))
         self.db = db_manager
         
         self.portfolio: Dict[int, M9DModel] = {}
@@ -598,8 +604,13 @@ class MainApplication(btk.Window):
         main_pane = btk.PanedWindow(self, orient="horizontal")
         main_pane.pack(fill="both", expand=True)
         
-        self.control_panel = self.create_control_panel(main_pane)
-        main_pane.add(self.control_panel, weight=2)
+        # FIX 1: Añadir un frame contenedor para el panel de control
+        control_container_frame = btk.Frame(main_pane)
+        main_pane.add(control_container_frame, weight=2)
+        
+        # El panel de control (ScrolledFrame) se crea DENTRO del contenedor
+        self.control_panel = self.create_control_panel(control_container_frame)
+        self.control_panel.pack(fill="both", expand=True) # Se usa .pack()
         
         self.notebook = btk.Notebook(main_pane)
         main_pane.add(self.notebook, weight=5)
@@ -610,7 +621,7 @@ class MainApplication(btk.Window):
         self.tab_strategy = self.create_strategy_tab(self.notebook)
         self.tab_ollama = self.create_ollama_tab(self.notebook)
         
-        self.notebook.add(self.tab_portfolio, text="  Portafolio (M9D) ")
+        self.notebook.add(self.tab_portfolio, text="  Portafolio (MoW) ")
         self.notebook.add(self.tab_project, text="  Proyecto (M9D) ")
         self.notebook.add(self.tab_strategy, text="  Estrategias (AHP) ")
         self.notebook.add(self.tab_ollama, text="  Análisis IA (Ollama) ")
@@ -618,9 +629,9 @@ class MainApplication(btk.Window):
     # --- Constructores de Paneles y Pestañas ---
 
     def create_control_panel(self, parent) -> btk.Frame:
-        # FIX: Esta es la clase corregida
+        # FIX 1: El padre 'parent' es ahora el 'control_container_frame'
         frame = ScrolledFrame(parent, autohide=True, padding=15)
-        btk.Label(frame, text="PANEL DE CONTROL M9D", font=("Helvetica", 16, "bold")).pack(pady=10)
+        btk.Label(frame, text="PANEL DE CONTROL MoW", font=("Helvetica", 16, "bold")).pack(pady=10)
         
         # --- Frame de Proyecto ---
         proj_frame = btk.Labelframe(frame, text="Gestión de Proyectos", padding=10)
@@ -629,8 +640,8 @@ class MainApplication(btk.Window):
         btk.Button(proj_frame, text="Crear Nuevo Proyecto...", command=self.on_create_project, bootstyle="info").pack(fill="x", pady=5)
         btk.Button(proj_frame, text="Refrescar Portafolio de DB", command=self.load_portfolio_from_db, bootstyle="info-outline").pack(fill="x", pady=5)
         
-        # --- Frame de Análisis M9D ---
-        mow_frame = btk.Labelframe(frame, text="Análisis de Portafolio (M9D)", padding=10)
+        # --- Frame de Análisis MoW ---
+        mow_frame = btk.Labelframe(frame, text="Análisis de Portafolio (MoW)", padding=10)
         mow_frame.pack(fill="x", pady=10)
         
         btk.Label(mow_frame, text="Estrategia Golden (Filtro 1):").pack(anchor="w")
@@ -651,7 +662,7 @@ class MainApplication(btk.Window):
         self.cb_mow_moment.set('t0')
         self.cb_mow_moment.pack(fill="x", pady=2)
         
-        self.btn_run_mow = btk.Button(mow_frame, text="EJECUTAR ANÁLISIS M9D", command=self.on_run_mow, bootstyle="success")
+        self.btn_run_mow = btk.Button(mow_frame, text="EJECUTAR ANÁLISIS MoW", command=self.on_run_mow, bootstyle="success")
         self.btn_run_mow.pack(fill="x", pady=10)
         
         # --- Frame de Estado ---
@@ -668,10 +679,10 @@ class MainApplication(btk.Window):
         chart_frame = btk.Frame(frame)
         chart_frame.pack(fill="both", expand=True)
         
-        self.charts_portfolio['cluster_frame'] = btk.Labelframe(chart_frame, text="Gráfico M9D 1: Clústeres de Proyectos (K-Means / PCA)", padding=5)
+        self.charts_portfolio['cluster_frame'] = btk.Labelframe(chart_frame, text="Gráfico MoW 1: Clústeres de Proyectos (K-Means / PCA)", padding=5)
         self.charts_portfolio['cluster_frame'].pack(side="left", fill="both", expand=True, padx=5, pady=5)
         
-        self.charts_portfolio['importance_frame'] = btk.Labelframe(chart_frame, text="Gráfico M9D 2: Análisis de Causa Raíz (Top 10 Factores)", padding=5)
+        self.charts_portfolio['importance_frame'] = btk.Labelframe(chart_frame, text="Gráfico MoW 2: Análisis de Causa Raíz (Top 10 Factores)", padding=5)
         self.charts_portfolio['importance_frame'].pack(side="left", fill="both", expand=True, padx=5, pady=5)
 
         export_frame = btk.Labelframe(frame, text="Exportar Resultados Cuantitativos", padding=10)
@@ -730,7 +741,6 @@ class MainApplication(btk.Window):
         
         btk.Label(frame, text="Estrategias Guardadas en la Base de Datos:").pack(anchor="w", pady=5)
         
-        # FIX: Esta es la clase corregida
         tree_frame = ScrolledFrame(frame, autohide=True)
         tree_frame.pack(fill="both", expand=True)
         
@@ -759,7 +769,6 @@ class MainApplication(btk.Window):
         self.cb_ollama_model.pack(side="left", padx=5)
         self.cb_ollama_model.bind("<<ComboboxSelected>>", self.on_ollama_model_select)
         
-        # FIX: Usar ScrolledText
         self.txt_ollama_info = ScrolledText(f_model, height=5, width=100, font=("Courier", 9), state="disabled")
         self.txt_ollama_info.pack(fill="x", pady=5, expand=True)
 
@@ -778,7 +787,7 @@ class MainApplication(btk.Window):
         f_prompt = btk.Labelframe(frame, text="Prompt", padding=5)
         f_prompt.pack(fill="x", pady=5)
         self_prompt_text = (
-            "Eres 'M9D', un analista experto en gestión de portafolios (M9D). Compara los dos proyectos M9D (Proyecto A y Proyecto B) "
+            "Eres 'Gemini-MoW', un analista experto en gestión de portafolios (MoW). Compara los dos proyectos M9D (Proyecto A y Proyecto B) "
             "que te proveeré como JSON. Enfócate en:\n"
             "1. ¿Por qué uno es más riesgoso que el otro (ver VME y PBT)?\n"
             "2. ¿Cuál es la 'causa raíz' de sus problemas (ver puntuaciones S_ij más bajas)?\n"
@@ -787,7 +796,6 @@ class MainApplication(btk.Window):
             "[DATOS PROYECTO B]:\n{data_b}\n\n"
             "Tu análisis:"
         )
-        # FIX: Usar ScrolledText
         self.txt_ollama_prompt = ScrolledText(f_prompt, height=10, width=100, font=("Helvetica", 10))
         self.txt_ollama_prompt.insert("1.0", self_prompt_text)
         self.txt_ollama_prompt.pack(fill="x", expand=True)
@@ -797,7 +805,6 @@ class MainApplication(btk.Window):
 
         f_response = btk.Labelframe(frame, text="Respuesta de la IA", padding=5)
         f_response.pack(fill="both", expand=True, pady=5)
-        # FIX: Usar ScrolledText
         self.txt_ollama_response = ScrolledText(f_response, height=10, width=100, font=("Helvetica", 10), state="disabled", wrap="word")
         self.txt_ollama_response.pack(fill="both", expand=True)
         
@@ -872,8 +879,8 @@ class MainApplication(btk.Window):
         AHPEditorWindow(self, self.db, self.update_strategy_dropdown)
 
     def on_run_mow(self):
-        """Inicia el hilo de análisis de portafolio (M9D)."""
-        self.set_status("Iniciando análisis M9D en segundo plano...")
+        """Inicia el hilo de análisis de portafolio (MoW)."""
+        self.set_status("Iniciando análisis MoW en segundo plano...")
         self.btn_run_mow.config(state="disabled")
         
         try:
@@ -967,12 +974,12 @@ class MainApplication(btk.Window):
             if result['type'] == 'mow_success':
                 self.current_mow_results = result['data']
                 self.draw_portfolio_charts(result['data'])
-                self.set_status("Análisis M9D completado exitosamente.")
+                self.set_status("Análisis MoW completado exitosamente.")
                 self.btn_run_mow.config(state="normal")
                 
             elif result['type'] == 'mow_error':
-                messagebox.showerror("Error de Análisis M9D", result['data'])
-                self.set_status(f"Error en análisis M9D: {result['data']}")
+                messagebox.showerror("Error de Análisis MoW", result['data'])
+                self.set_status(f"Error en análisis MoW: {result['data']}")
                 self.btn_run_mow.config(state="normal")
             
             elif result['type'] == 'ollama_response':
@@ -1004,7 +1011,7 @@ class MainApplication(btk.Window):
                 data = result['data']
                 self.txt_ollama_info.config(state="normal")
                 # Esta fue la línea del error.
-                self.txt_ollama_info.delete("1.0", END)
+                self.txt_ollama_info.delete("1.0", END) # <-- FIX: Línea Corregida
                 if "error" in data:
                     self.txt_ollama_info.insert("1.0", data['error'])
                 else:
@@ -1056,13 +1063,13 @@ class MainApplication(btk.Window):
         try:
             if export_type == 'cluster_csv':
                 if 'clustering_df' not in self.current_mow_results:
-                    raise ValueError("No hay datos de clúster para exportar. Ejecute el análisis M9D.")
+                    raise ValueError("No hay datos de clúster para exportar. Ejecute el análisis MoW.")
                 path = filedialog.asksaveasfilename(defaultextension=".csv", filetypes=[("CSV Files", "*.csv")])
                 if path: ExportService.export_to_csv(self.current_mow_results['clustering_df'], path)
                     
             elif export_type == 'importance_csv':
                 if 'importance_df' not in self.current_mow_results:
-                    raise ValueError("No hay datos de causa raíz. Ejecute el análisis M9D.")
+                    raise ValueError("No hay datos de causa raíz. Ejecute el análisis MoW.")
                 path = filedialog.asksaveasfilename(defaultextension=".csv", filetypes=[("CSV Files", "*.csv")])
                 if path: ExportService.export_to_csv(self.current_mow_results['importance_df'], path)
             
@@ -1073,7 +1080,7 @@ class MainApplication(btk.Window):
                 model = self.portfolio.get(pid)
                 if not model: raise ValueError("Proyecto no encontrado.")
                 
-                # Exportar el momento seleccionado en el panel de M9D
+                # Exportar el momento seleccionado en el panel de MoW
                 moment_to_export = self.cb_mow_moment.get()
                 if moment_to_export not in model.scores:
                     raise ValueError(f"El proyecto seleccionado no tiene datos para el momento '{moment_to_export}'")
@@ -1087,7 +1094,8 @@ class MainApplication(btk.Window):
                     path = filedialog.asksaveasfilename(defaultextension=".json", filetypes=[("JSON Files", "*.json")])
                     if path: ExportService.export_to_json(data_pkg, path)
             
-            self.set_status(f"Exportación exitosa a {path}")
+            if path:
+                self.set_status(f"Exportación exitosa a {path}")
 
         except Exception as e:
             messagebox.showerror("Error de Exportación", str(e))
@@ -1104,13 +1112,13 @@ class MainApplication(btk.Window):
         canvas.get_tk_widget().pack(fill="both", expand=True)
 
     def draw_portfolio_charts(self, mow_results: Dict):
-        """Dibuja los 2 gráficos de la pestaña M9D."""
+        """Dibuja los 2 gráficos de la pestaña MoW."""
         try:
             # 1. Gráfico de Clústeres
             fig1, ax1 = plt.subplots(figsize=(7, 6))
             sns.scatterplot(data=mow_results['clustering_df'], x='PC1', y='PC2', hue='Cluster',
                             palette='viridis', s=100, alpha=0.7, legend='full', ax=ax1)
-            ax1.set_title('Gráfico M9D 1: Clústeres de Proyectos (PCA)')
+            ax1.set_title('Gráfico MoW 1: Clústeres de Proyectos (PCA)')
             ax1.set_xlabel('Componente Principal 1'); ax1.set_ylabel('Componente Principal 2')
             ax1.grid(linestyle='--', alpha=0.5)
             fig1.tight_layout()
@@ -1120,12 +1128,12 @@ class MainApplication(btk.Window):
             fig2, ax2 = plt.subplots(figsize=(7, 6))
             importance_df = mow_results['importance_df'].head(15)
             sns.barplot(data=importance_df, x='Importancia', y='Factor (S_i,j)', orient='h', palette='rocket', ax=ax2)
-            ax2.set_title('Gráfico M9D 2: Causa Raíz (Top 15 Factores)')
+            ax2.set_title('Gráfico MoW 2: Causa Raíz (Top 15 Factores)')
             ax2.set_xlabel('Importancia (Random Forest)')
             fig2.tight_layout()
             self.draw_in_frame(self.charts_portfolio['importance_frame'], fig2)
         except Exception as e:
-            self.set_status(f"Error al dibujar gráficos M9D: {e}")
+            self.set_status(f"Error al dibujar gráficos MoW: {e}")
 
     def draw_project_charts(self, project_name: str, vme_a: np.ndarray, vme_b: np.ndarray, pbt_a: np.ndarray):
         """Dibuja los 2 gráficos de la pestaña M9D."""
