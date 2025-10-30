@@ -1,9 +1,6 @@
 # 9D
 M9D está inspirada en el analisis sistemico que ofrece [Constelación](https://github.com/smartcitiescommunity/Constelation), el cual es fundamental en el analisis y la toma de decisiones. 
 
-Aquí tienes el `README.md` completo, formateado en código Markdown listo para que lo copies, pegues y guardes en tu repositorio de GitHub.
-
-````markdown
 # M9D es un [Modelo, MEtodo y Metodología] dependiendo de como sea usado (M9D^X=MoW)
 Un sistema de análisis de portafolio, de código abierto, que convierte el juicio experto en estrategia matemática y acción de ML.
 
@@ -131,5 +128,3 @@ Este proyecto nació de una colaboración sinérgica entre **Visión Humana** y 
 ## 📜 Licencia
 
 Este proyecto se distribuye bajo la **Licencia MIT**.
-
-````
