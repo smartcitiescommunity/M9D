@@ -139,4 +139,4 @@ Este proyecto nació de una colaboración sinérgica entre **Visión Humana** y 
 
 ## 📜 Licencia
 
-Este proyecto se distribuye bajo la **Licencia MIT**.
+Este proyecto se distribuye bajo la **Creative Commons Zero v1.0 Universal**.
