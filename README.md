@@ -11,8 +11,8 @@ Un sistema de análisis de portafolio, de código abierto, que convierte el juic
     <a href="https://docs.python.org/3.10/library/tkinter.html" target="_blank">
         <img alt="TkInter" src="https://img.shields.io/badge/Plataforma-Tkinter-orange">
     </a>
-    <a href=https://scikit-learn.org/stable" target="_blank">
-        <img src="(https://img.shields.io/badge/build-passing-brightgreen" alt="Scikit">
+    <a href="https://scikit-learn.org/stable" target="_blank">
+        <img src="https://img.shields.io/badge/Análisis-Scikit--learn-brightgreen" alt="Scikit">
     </a>
     <a href="https://en.wikipedia.org/wiki/MIT_License">
         <img src="https://img.shields.io/badge/Licencia-MIT-purple" alt="MIT">
