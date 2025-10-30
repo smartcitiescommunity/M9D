@@ -1,8 +1,8 @@
 # ======================================================================
-# APLICACIÓN DE PRODUCCIÓN MoW (M9D^X) v2.3 (Corregida)
+# APLICACIÓN DE PRODUCCIÓN MoW (M9D^X) v2.4 (Corregida)
 # ======================================================================
 # Autor: Gemini (Basado en la co-creación con el usuario)
-# Stack v2.3:
+# Stack v2.4:
 # - GUI: Python, Tkinter, ttkbootstrap
 # - Base de Datos: Driver intercambiable (SQLite / MySQL)
 # - Modelos: Numpy, Pandas (para AHP, M9D)
@@ -11,9 +11,9 @@
 # - E/S: Exportación (PDF/CSV/JSON), Importación (CSV)
 # - Producción: Threading y Queue (GUI no bloqueante)
 # ----------------------------------------------------------------------
-# FIX v2.3: Corregido '_tkinter.TclError: unknown option "-state"'.
-#           Los widgets ScrolledText deben ser accedidos con .text
-#           para config/get/insert/delete.
+# FIX v2.4: Corregido 'application has been destroyed' (Race Condition).
+#           Se implementa un 'shutdown elegante' en 'on_closing'
+#           cancelando el 'self.after()' job pendiente.
 # ======================================================================
 
 import tkinter as tk
@@ -594,6 +594,10 @@ class MainApplication(btk.Window):
         self.analysis_queue = queue.Queue()
         self.current_mow_results: Dict = {}
         
+        # FIX v2.4: Añadir flag de estado para un cierre limpio
+        self.running = True
+        self._after_job_id = None
+        
         self.build_gui()
         self.load_portfolio_from_db()
         self.after(100, self.load_ollama_models_threaded) # Cargar modelos de Ollama al inicio
@@ -793,7 +797,7 @@ class MainApplication(btk.Window):
             "Tu análisis:"
         )
         self.txt_ollama_prompt = ScrolledText(f_prompt, height=10, width=100, font=("Helvetica", 10))
-        self.txt_ollama_prompt.text.insert("1.0", self_prompt_text) # <-- FIX v2.3
+        self.txt_ollama_prompt.text.insert("1.0", self_prompt_text)
         self.txt_ollama_prompt.pack(fill="x", expand=True)
         
         self.btn_run_ollama = btk.Button(frame, text="Preguntar a IA (Ollama)", command=self.on_run_ollama, bootstyle="warning")
@@ -941,7 +945,6 @@ class MainApplication(btk.Window):
             data_a = model_a.get_full_data_package(moment)
             data_b = model_b.get_full_data_package(moment)
             
-            # FIX v2.3: Acceder al widget .text para .get()
             prompt_template = self.txt_ollama_prompt.text.get("1.0", END)
             prompt = prompt_template.format(
                 data_a=json.dumps(data_a, indent=2),
@@ -966,6 +969,11 @@ class MainApplication(btk.Window):
 
     def check_analysis_queue(self):
         """(Función GUI) Revisa la cola de resultados de hilos."""
+        
+        # FIX v2.4: Si la app no está corriendo, no hacer nada.
+        if not self.running:
+            return
+            
         try:
             result = self.analysis_queue.get(block=False)
             
@@ -982,7 +990,6 @@ class MainApplication(btk.Window):
             
             elif result['type'] == 'ollama_response':
                 data = result['data']
-                # FIX v2.3: Acceder al widget .text para .config/delete/insert
                 self.txt_ollama_response.text.config(state="normal")
                 self.txt_ollama_response.text.delete("1.0", END)
                 if "error" in data:
@@ -1008,7 +1015,6 @@ class MainApplication(btk.Window):
             
             elif result['type'] == 'ollama_show':
                 data = result['data']
-                # FIX v2.3: Acceder al widget .text para .config/delete/insert
                 self.txt_ollama_info.text.config(state="normal")
                 self.txt_ollama_info.text.delete("1.0", END) 
                 if "error" in data:
@@ -1025,7 +1031,15 @@ class MainApplication(btk.Window):
 
         except queue.Empty:
             # Si no hay resultados, volver a revisar en 100ms
-            self.after(100, self.check_analysis_queue)
+            pass
+        except Exception as e:
+            # Capturar cualquier otro error de GUI (como app destruida)
+            print(f"Error en check_analysis_queue: {e}")
+            self.running = False # Detener el bucle
+            
+        # FIX v2.4: Volver a programar solo si la app sigue corriendo
+        if self.running:
+            self._after_job_id = self.after(100, self.check_analysis_queue)
 
     def on_project_selected(self, event=None):
         """Actualiza la Pestaña 2 cuando se selecciona un proyecto."""
@@ -1048,8 +1062,12 @@ class MainApplication(btk.Window):
                 return
 
             if vme_b is None:
-                # Si no hay 't1', mostrar A vs A (solo baseline)
-                vme_b = vme_a
+                # Simular t1 si no existe para el gráfico
+                scores_t0 = model.scores['t0']
+                scores_t1 = scores_t0.copy() # Mostrar A vs A
+                model.set_reality_scores(scores_t1, 't1')
+                vme_b, pbt_b = model.calculate_vme('t1')
+                self.set_status(f"Proyecto {pid} cargado. (Momento t1 no encontrado, mostrando t0 vs t0)")
                 
             self.draw_project_charts(model.project_name, vme_a, vme_b, pbt_a)
 
@@ -1071,7 +1089,7 @@ class MainApplication(btk.Window):
                 if 'importance_df' not in self.current_mow_results:
                     raise ValueError("No hay datos de causa raíz. Ejecute el análisis MoW.")
                 path = filedialog.asksaveasfilename(defaultextension=".csv", filetypes=[("CSV Files", "*.csv")])
-                if path: ExportService.export_to_csv(self.current_mmow_results['importance_df'], path)
+                if path: ExportService.export_to_csv(self.current_mow_results['importance_df'], path)
             
             elif export_type == 'project_pdf' or export_type == 'project_json':
                 pid_str = self.cb_project_select.get()
@@ -1208,6 +1226,7 @@ class MainApplication(btk.Window):
         """Inicia un hilo para cargar la lista de modelos de Ollama."""
         self.set_status("Contactando a Ollama para listar modelos...")
         threading.Thread(target=self.run_ollama_list_thread, daemon=True).start()
+        # FIX v2.4: Iniciar el bucle de la cola aquí
         self.after(100, self.check_analysis_queue)
         
     def run_ollama_list_thread(self):
@@ -1224,7 +1243,7 @@ class MainApplication(btk.Window):
         self.set_status(f"Obteniendo info del modelo: {model_name}...")
         payload = {"name": model_name}
         threading.Thread(target=self.run_ollama_show_thread, args=(payload,), daemon=True).start()
-        self.after(100, self.check_analysis_queue)
+        # No es necesario llamar a self.after aquí, el bucle check_analysis_queue ya está corriendo
 
     def run_ollama_show_thread(self, payload: Dict):
         """(Función Hilo) Llama a la API de Ollama 'show'."""
@@ -1238,12 +1257,31 @@ class MainApplication(btk.Window):
         # Limitar la longitud del mensaje para evitar que el label se expanda demasiado
         if len(msg) > 200:
             msg = msg[:200] + "..."
-        self.status_bar_text.set(f"[{pd.Timestamp.now().strftime('%H:%M:%S')}] {msg}")
+        try:
+            self.status_bar_text.set(f"[{pd.Timestamp.now().strftime('%H:%M:%S')}] {msg}")
+        except tk.TclError:
+            # Esto puede pasar si set_status es llamado durante el cierre
+            pass
         
     def on_closing(self):
         """Limpia la conexión de la DB al cerrar."""
         if messagebox.askokcancel("Salir", "¿Seguro que quieres salir?"):
-            self_db = self.db.close()
+            # FIX v2.4: Implementar cierre elegante
+            self.running = False # Poner el flag en Falso
+            
+            # Cancelar cualquier job 'after' pendiente
+            if self._after_job_id:
+                self.after_cancel(self._after_job_id)
+                self._after_job_id = None
+                
+            # Vaciar la cola de análisis para que los hilos mueran
+            while not self.analysis_queue.empty():
+                try:
+                    self.analysis_queue.get(block=False)
+                except queue.Empty:
+                    break
+            
+            self.db.close()
             self.destroy()
 
 # ======================================================================
