@@ -54,7 +54,7 @@ USE_DB_TYPE = 'sqlite'  # Cambia a 'mysql' para usar MySQL
 
 # Configuración para SQLite (por defecto)
 DB_CONFIG = {
-    'sqlite': 'sqlite:///db.db'
+    'sqlite': 'sqlite:///mow_portfolio_v2.db'
 }
 
 # Configuración para MySQL (requiere 'pip install PyMySQL')
