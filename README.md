@@ -5,31 +5,22 @@ M9D está inspirada en el analisis sistemico que ofrece [Constelación](https://
 Un sistema de análisis de portafolio, de código abierto, que convierte el juicio experto en estrategia matemática y acción de ML.
 
 <p align="center">
-    <a href="https://x.com/intent/follow?screen_name=infiniflowai" target="_blank">
+    <a href="https://www.python.org/downloads/release/python-31019" target="_blank">
         <img src="https://img.shields.io/badge/Python-3.10%2B-blue?logo=python&logoColor=white" alt="Python">
     </a>
-    <a href="https://demo.ragflow.io" target="_blank">
-        <img alt="Static Badge" src="https://img.shields.io/badge/Online-Demo-4e6b99">
+    <a href="https://docs.python.org/3.10/library/tkinter.html" target="_blank">
+        <img alt="TkInter" src="https://img.shields.io/badge/Plataforma-Tkinter-orange">
     </a>
-    <a href="https://hub.docker.com/r/infiniflow/ragflow" target="_blank">
-        <img src="https://img.shields.io/docker/pulls/infiniflow/ragflow?label=Docker%20Pulls&color=0db7ed&logo=docker&logoColor=white&style=flat-square" alt="docker pull infiniflow/ragflow:v0.21.1">
+    <a href=https://scikit-learn.org/stable" target="_blank">
+        <img src="(https://img.shields.io/badge/Análisis-Scikit--learn-brightgreene" alt="Scikit">
     </a>
-    <a href="https://github.com/infiniflow/ragflow/releases/latest">
-        <img src="https://img.shields.io/github/v/release/infiniflow/ragflow?color=blue&label=Latest%20Release" alt="Latest Release">
+    <a href="https://en.wikipedia.org/wiki/MIT_License">
+        <img src="https://img.shields.io/badge/Licencia-MIT-purple" alt="MIT">
     </a>
-    <a href="https://github.com/infiniflow/ragflow/blob/main/LICENSE">
-        <img height="21" src="https://img.shields.io/badge/License-Apache--2.0-ffffff?labelColor=d4eaf7&color=2e6cc4" alt="license">
-    </a>
-    <a href="https://deepwiki.com/infiniflow/ragflow">
-        <img alt="Ask DeepWiki" src="https://deepwiki.com/badge.svg">
+    <a href="https://ollama.com/search">
+        <img alt="Ollama" src="https://img.shields.io/badge/IA-Ollama-white?logo=ollama">
     </a>
 </p>
-
-[Python]()
-[Plataforma]()
-[Análisis](https://img.shields.io/badge/Análisis-Scikit--learn-brightgreen)
-[Licencia](https://img.shields.io/badge/Licencia-MIT-purple)
-[Ollama](https://img.shields.io/badge/IA-Ollama-white?logo=ollama)
 
 ---
 
