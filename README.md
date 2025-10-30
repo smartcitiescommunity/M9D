@@ -7,11 +7,11 @@ Aquí tienes el `README.md` completo, formateado en código Markdown listo para 
 # M9D es un [Modelo, MEtodo y Metodología] dependiendo de como sea usado (M9D^X=MoW)
 Un sistema de análisis de portafolio, de código abierto, que convierte el juicio experto en estrategia matemática y acción de ML.
 
-![Python](https://img.shields.io/badge/Python-3.10%2B-blue?logo=python&logoColor=white)
-![Plataforma](https://img.shields.io/badge/Plataforma-Tkinter-orange)
-![Análisis](https://img.shields.io/badge/Análisis-Scikit--learn-brightgreen)
-![Licencia](https://img.shields.io/badge/Licencia-MIT-purple)
-![Ollama](https://img.shields.io/badge/IA-Ollama-white?logo=ollama)
+[Python](https://img.shields.io/badge/Python-3.10%2B-blue?logo=python&logoColor=white)
+[Plataforma](https://img.shields.io/badge/Plataforma-Tkinter-orange)
+[Análisis](https://img.shields.io/badge/Análisis-Scikit--learn-brightgreen)
+[Licencia](https://img.shields.io/badge/Licencia-MIT-purple)
+[Ollama](https://img.shields.io/badge/IA-Ollama-white?logo=ollama)
 
 ---
 
