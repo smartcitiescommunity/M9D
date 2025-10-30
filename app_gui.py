@@ -1,8 +1,8 @@
 # ======================================================================
-# APLICACIÓN DE PRODUCCIÓN MoW (M9D^X) v2.2 (Corregida)
+# APLICACIÓN DE PRODUCCIÓN MoW (M9D^X) v2.3 (Corregida)
 # ======================================================================
 # Autor: Gemini (Basado en la co-creación con el usuario)
-# Stack v2.2:
+# Stack v2.3:
 # - GUI: Python, Tkinter, ttkbootstrap
 # - Base de Datos: Driver intercambiable (SQLite / MySQL)
 # - Modelos: Numpy, Pandas (para AHP, M9D)
@@ -11,8 +11,9 @@
 # - E/S: Exportación (PDF/CSV/JSON), Importación (CSV)
 # - Producción: Threading y Queue (GUI no bloqueante)
 # ----------------------------------------------------------------------
-# FIX v2.2: Corregido error 'can't add slave' de PanedWindow y
-#           anidamiento incorrecto de ScrolledFrames en AHPEditor.
+# FIX v2.3: Corregido '_tkinter.TclError: unknown option "-state"'.
+#           Los widgets ScrolledText deben ser accedidos con .text
+#           para config/get/insert/delete.
 # ======================================================================
 
 import tkinter as tk
@@ -433,7 +434,7 @@ class ExportService:
         
         c.setFillColorRGB(0, 0, 0)
         c.setFont("Helvetica", 10)
-        c.drawString(inch, inch, f"Reporte generado por MOW v2.1 - {pd.Timestamp.now().strftime('%Y-%m-%d %H:%M')}")
+        c.drawString(inch, inch, f"Reporte generado por MOW v2.3 - {pd.Timestamp.now().strftime('%Y-%m-%d %H:%M')}")
         
         c.save()
 
@@ -441,12 +442,10 @@ class ExportService:
 # SECCIÓN 6: INTERFAZ GRÁFICA (GUI)
 # ======================================================================
 
-# FIX 2: Esta clase ahora hereda de btk.Frame. 
-# El scroll será provisto por su padre en AHPEditorWindow.
 class AHPSliderFrame(btk.Frame):
     """Un Frame que contiene N sliders AHP."""
     def __init__(self, parent, labels: List[str]):
-        super().__init__(parent) # <-- FIX 2
+        super().__init__(parent)
         self.labels = labels
         self.n = len(labels)
         self.slider_vars: Dict[Tuple[int, int], tk.IntVar] = {}
@@ -514,19 +513,18 @@ class AHPEditorWindow(Toplevel):
         # Crear los 4 frames de sliders
         self.ahp_frames: Dict[str, AHPSliderFrame] = {}
         
-        # FIX 2: El 'ScrolledFrame' es el padre...
+        # AHP para Dimensiones (9x9)
         frame_dims_scrolled = ScrolledFrame(self.notebook, autohide=True) 
-        # ... y 'AHPSliderFrame' (que ahora es un Frame simple) va *dentro* de él.
         self.ahp_frames['dimensions'] = AHPSliderFrame(frame_dims_scrolled, D_LABELS)
         self.ahp_frames['dimensions'].pack(fill="both", expand=True)
         self.notebook.add(frame_dims_scrolled, text="Dimensiones (9x9)")
 
+        # AHP para Grupos Temporales (3x3)
         groups = [('past', T_LABELS_SHORT[0:3]),
                   ('present', T_LABELS_SHORT[3:6]),
                   ('future', T_LABELS_SHORT[6:9])]
         
         for name, labels in groups:
-            # No necesitan scroll, son 3x3
             frame = btk.Frame(self.notebook) 
             self.notebook.add(frame, text=f"{name.capitalize()} (3x3)")
             self.ahp_frames[name] = AHPSliderFrame(frame, labels)
@@ -588,7 +586,7 @@ class AHPEditorWindow(Toplevel):
 class MainApplication(btk.Window):
 
     def __init__(self, db_manager: DatabaseManager):
-        super().__init__(title="MoW (M9D^X) - Plataforma de Análisis de Portafolio v2.2", themename="cyborg", size=(1500, 950))
+        super().__init__(title="MoW (M9D^X) - Plataforma de Análisis de Portafolio v2.3", themename="cyborg", size=(1500, 950))
         self.db = db_manager
         
         self.portfolio: Dict[int, M9DModel] = {}
@@ -604,13 +602,12 @@ class MainApplication(btk.Window):
         main_pane = btk.PanedWindow(self, orient="horizontal")
         main_pane.pack(fill="both", expand=True)
         
-        # FIX 1: Añadir un frame contenedor para el panel de control
+        # Frame contenedor para el panel de control
         control_container_frame = btk.Frame(main_pane)
         main_pane.add(control_container_frame, weight=2)
         
-        # El panel de control (ScrolledFrame) se crea DENTRO del contenedor
         self.control_panel = self.create_control_panel(control_container_frame)
-        self.control_panel.pack(fill="both", expand=True) # Se usa .pack()
+        self.control_panel.pack(fill="both", expand=True)
         
         self.notebook = btk.Notebook(main_pane)
         main_pane.add(self.notebook, weight=5)
@@ -629,7 +626,6 @@ class MainApplication(btk.Window):
     # --- Constructores de Paneles y Pestañas ---
 
     def create_control_panel(self, parent) -> btk.Frame:
-        # FIX 1: El padre 'parent' es ahora el 'control_container_frame'
         frame = ScrolledFrame(parent, autohide=True, padding=15)
         btk.Label(frame, text="PANEL DE CONTROL MoW", font=("Helvetica", 16, "bold")).pack(pady=10)
         
@@ -797,7 +793,7 @@ class MainApplication(btk.Window):
             "Tu análisis:"
         )
         self.txt_ollama_prompt = ScrolledText(f_prompt, height=10, width=100, font=("Helvetica", 10))
-        self.txt_ollama_prompt.insert("1.0", self_prompt_text)
+        self.txt_ollama_prompt.text.insert("1.0", self_prompt_text) # <-- FIX v2.3
         self.txt_ollama_prompt.pack(fill="x", expand=True)
         
         self.btn_run_ollama = btk.Button(frame, text="Preguntar a IA (Ollama)", command=self.on_run_ollama, bootstyle="warning")
@@ -941,10 +937,12 @@ class MainApplication(btk.Window):
             model_a = self.portfolio.get(pid_a)
             model_b = self.portfolio.get(pid_b)
             
-            data_a = model_a.get_full_data_package(self.cb_mow_moment.get())
-            data_b = model_b.get_full_data_package(self.cb_mow_moment.get())
+            moment = self.cb_mow_moment.get()
+            data_a = model_a.get_full_data_package(moment)
+            data_b = model_b.get_full_data_package(moment)
             
-            prompt_template = self.txt_ollama_prompt.get("1.0", END)
+            # FIX v2.3: Acceder al widget .text para .get()
+            prompt_template = self.txt_ollama_prompt.text.get("1.0", END)
             prompt = prompt_template.format(
                 data_a=json.dumps(data_a, indent=2),
                 data_b=json.dumps(data_b, indent=2)
@@ -984,15 +982,16 @@ class MainApplication(btk.Window):
             
             elif result['type'] == 'ollama_response':
                 data = result['data']
-                self.txt_ollama_response.config(state="normal")
-                self.txt_ollama_response.delete("1.0", END)
+                # FIX v2.3: Acceder al widget .text para .config/delete/insert
+                self.txt_ollama_response.text.config(state="normal")
+                self.txt_ollama_response.text.delete("1.0", END)
                 if "error" in data:
-                    self.txt_ollama_response.insert("1.0", data['error'])
+                    self.txt_ollama_response.text.insert("1.0", data['error'])
                     self.set_status("Error de Ollama. Revisa la consola.")
                 else:
-                    self.txt_ollama_response.insert("1.0", data['response'])
+                    self.txt_ollama_response.text.insert("1.0", data['response'])
                     self.set_status("Respuesta de IA (Ollama) recibida.")
-                self.txt_ollama_response.config(state="disabled")
+                self.txt_ollama_response.text.config(state="disabled")
                 self.btn_run_ollama.config(state="normal")
             
             elif result['type'] == 'ollama_list':
@@ -1009,11 +1008,11 @@ class MainApplication(btk.Window):
             
             elif result['type'] == 'ollama_show':
                 data = result['data']
-                self.txt_ollama_info.config(state="normal")
-                # Esta fue la línea del error.
-                self.txt_ollama_info.delete("1.0", END) # <-- FIX: Línea Corregida
+                # FIX v2.3: Acceder al widget .text para .config/delete/insert
+                self.txt_ollama_info.text.config(state="normal")
+                self.txt_ollama_info.text.delete("1.0", END) 
                 if "error" in data:
-                    self.txt_ollama_info.insert("1.0", data['error'])
+                    self.txt_ollama_info.text.insert("1.0", data['error'])
                 else:
                     details = (
                         f"Familia: {data.get('details', {}).get('family', 'N/A')}\n"
@@ -1021,8 +1020,8 @@ class MainApplication(btk.Window):
                         f"Quantización: {data.get('details', {}).get('quantization_level', 'N/A')}\n"
                         f"Modificado: {data.get('modified_at', 'N/A').split('T')[0]}"
                     )
-                    self.txt_ollama_info.insert("1.0", details)
-                self.txt_ollama_info.config(state="disabled")
+                    self.txt_ollama_info.text.insert("1.0", details)
+                self.txt_ollama_info.text.config(state="disabled")
 
         except queue.Empty:
             # Si no hay resultados, volver a revisar en 100ms
@@ -1061,6 +1060,7 @@ class MainApplication(btk.Window):
     def on_export(self, export_type: str):
         self.set_status(f"Preparando exportación: {export_type}...")
         try:
+            path = None # Inicializar path
             if export_type == 'cluster_csv':
                 if 'clustering_df' not in self.current_mow_results:
                     raise ValueError("No hay datos de clúster para exportar. Ejecute el análisis MoW.")
@@ -1071,7 +1071,7 @@ class MainApplication(btk.Window):
                 if 'importance_df' not in self.current_mow_results:
                     raise ValueError("No hay datos de causa raíz. Ejecute el análisis MoW.")
                 path = filedialog.asksaveasfilename(defaultextension=".csv", filetypes=[("CSV Files", "*.csv")])
-                if path: ExportService.export_to_csv(self.current_mow_results['importance_df'], path)
+                if path: ExportService.export_to_csv(self.current_mmow_results['importance_df'], path)
             
             elif export_type == 'project_pdf' or export_type == 'project_json':
                 pid_str = self.cb_project_select.get()
@@ -1243,7 +1243,7 @@ class MainApplication(btk.Window):
     def on_closing(self):
         """Limpia la conexión de la DB al cerrar."""
         if messagebox.askokcancel("Salir", "¿Seguro que quieres salir?"):
-            self.db.close()
+            self_db = self.db.close()
             self.destroy()
 
 # ======================================================================
