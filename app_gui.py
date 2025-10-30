@@ -17,6 +17,7 @@
 #    el problema de "arranque en frío" (cold start).
 # 2. Corregido 'SyntaxError: unterminated string literal' en T_LABELS_SHORT.
 # 3. Corregido 'TclError: can't add ... as slave' en AHPEditorWindow.
+# pip install ttkbootstrap numpy pandas scikit-learn matplotlib seaborn sqlalchemy reportlab requests networkx
 # ======================================================================
 
 import tkinter as tk
