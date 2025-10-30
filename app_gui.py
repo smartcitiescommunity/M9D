@@ -1,19 +1,20 @@
 # ======================================================================
-# APLICACIÓN DE PRODUCCIÓN MoW (M9D^X) v2.4 (Corregida)
+# APLICACIÓN DE PRODUCCIÓN MoW (M9D^X) v2.5 (con NetworkX)
 # ======================================================================
 # Autor: Gemini (Basado en la co-creación con el usuario)
-# Stack v2.4:
+# Stack v2.5:
 # - GUI: Python, Tkinter, ttkbootstrap
 # - Base de Datos: Driver intercambiable (SQLite / MySQL)
 # - Modelos: Numpy, Pandas (para AHP, M9D)
 # - ML: Scikit-learn (para MoW)
+# - Grafos: NetworkX (para análisis de conexiones)
 # - IA Cualitativa: Conexión Ollama (list, show, generate)
 # - E/S: Exportación (PDF/CSV/JSON), Importación (CSV)
 # - Producción: Threading y Queue (GUI no bloqueante)
 # ----------------------------------------------------------------------
-# FIX v2.4: Corregido 'application has been destroyed' (Race Condition).
-#           Se implementa un 'shutdown elegante' en 'on_closing'
-#           cancelando el 'self.after()' job pendiente.
+# FIX v2.5: Añadido NetworkX para grafo de similitud de portafolio
+#           Añadido Radar de Clústeres para comparar perfiles VME
+#           Refactorizada la pestaña MoW con sub-pestañas
 # ======================================================================
 
 import tkinter as tk
@@ -37,11 +38,12 @@ from typing import List, Dict, Tuple, Any
 import sqlalchemy as db
 from sqlalchemy import create_engine, Table, Column, Integer, String, Float, MetaData, ForeignKey, Text as DBText
 
-# --- Librerías de ML ---
+# --- Librerías de ML y Grafos ---
 from sklearn.cluster import KMeans
 from sklearn.decomposition import PCA
 from sklearn.metrics.pairwise import cosine_similarity
 from sklearn.ensemble import RandomForestClassifier
+import networkx as nx # <-- NUEVO
 
 # --- Librerías de Exportación ---
 from reportlab.pdfgen import canvas
@@ -54,18 +56,13 @@ from reportlab.lib.units import inch
 
 # --- CONFIGURACIÓN DE BASE DE DATOS ---
 USE_DB_TYPE = 'sqlite'  # Cambia a 'mysql' para usar MySQL
-
-# Configuración para SQLite (por defecto)
 DB_CONFIG = {
-    'sqlite': 'sqlite:///mow_portfolio_v2.db'
+    'sqlite': 'sqlite:///mow_portfolio_v2.db',
+    'mysql': 'mysql+pymysql://USUARIO:PASSWORD@HOST:PUERTO/NOMBRE_DB'
 }
 
-# Configuración para MySQL (requiere 'pip install PyMySQL')
-# ¡CAMBIA ESTOS VALORES!
-DB_CONFIG['mysql'] = 'mysql+pymysql://USUARIO:PASSWORD@HOST:PUERTO/NOMBRE_DB'
-
 # --- CONFIGURACIÓN DE OLLAMA ---
-OLLAMA_API_URL = "http://localhost:11434" # URL base de Ollama
+OLLAMA_API_URL = "http://localhost:11434"
 
 # --- Etiquetas del Modelo ---
 D_LABELS = [
@@ -304,11 +301,16 @@ class AnalysisService:
         """Ejecuta el pipeline completo de 3 fases de MoW."""
         # --- FASE 1: Filtro de Similitud ---
         project_ids = [model.project_id for model in self.platform.values()]
+        project_names = {model.project_id: model.project_name for model in self.platform.values()}
         strategy_vectors = [model.get_strategy_vector() for model in self.platform.values()]
         
         if not strategy_vectors:
              raise Exception("Portafolio vacío. No hay proyectos para analizar.")
         
+        # Matriz de similitud NxN (NUEVO)
+        similarity_matrix_full = cosine_similarity(strategy_vectors)
+        
+        # Filtro contra Golden Standard
         similarities = cosine_similarity(strategy_vectors, [self.golden_strategy_vector])
         sim_df = pd.DataFrame({'ProjectID': project_ids, 'Similarity': similarities.flatten()})
         
@@ -321,20 +323,15 @@ class AnalysisService:
         valid_project_ids_for_cluster = []
         for pid in comparable_projects_ids:
             try:
-                # Asegurarse de que el momento exista antes de obtenerlo
                 if moment in self.platform[pid].vme_results:
                     vme_vectors.append(self.platform[pid].get_vme_vector(moment))
                     valid_project_ids_for_cluster.append(pid)
-            except Exception:
-                # El proyecto no tiene datos para este momento (ej. t1)
-                pass
+            except Exception: pass
         
         if not vme_vectors:
             raise Exception(f"Ningún proyecto comparable tiene datos para el momento '{moment}'")
             
         vme_matrix = np.array(vme_vectors)
-        
-        # Asegurarse de no tener más clústeres que muestras
         n_clusters = min(n_clusters, len(vme_vectors))
         if n_clusters < 2:
              raise Exception("Se necesita al menos 2 proyectos comparables para agrupar.")
@@ -346,7 +343,9 @@ class AnalysisService:
         components = pca.fit_transform(vme_matrix)
         
         cluster_df = pd.DataFrame({
-            'ProjectID': valid_project_ids_for_cluster, 'Cluster': clusters,
+            'ProjectID': valid_project_ids_for_cluster, 
+            'ProjectName': [project_names[pid] for pid in valid_project_ids_for_cluster],
+            'Cluster': clusters,
             'VME_IH': vme_matrix[:, 0], 'VME_IS': vme_matrix[:, 1], 'VME_IP': vme_matrix[:, 2],
             'PC1': components[:, 0], 'PC2': components[:, 1]
         })
@@ -372,6 +371,7 @@ class AnalysisService:
         
         return {
             "similarity_df": sim_df,
+            "similarity_matrix_full": similarity_matrix_full,
             "clustering_df": cluster_df,
             "cluster_centers": cluster_centers,
             "importance_df": importance_df
@@ -434,7 +434,7 @@ class ExportService:
         
         c.setFillColorRGB(0, 0, 0)
         c.setFont("Helvetica", 10)
-        c.drawString(inch, inch, f"Reporte generado por MOW v2.3 - {pd.Timestamp.now().strftime('%Y-%m-%d %H:%M')}")
+        c.drawString(inch, inch, f"Reporte generado por MOW v2.5 - {pd.Timestamp.now().strftime('%Y-%m-%d %H:%M')}")
         
         c.save()
 
@@ -450,9 +450,7 @@ class AHPSliderFrame(btk.Frame):
         self.n = len(labels)
         self.slider_vars: Dict[Tuple[int, int], tk.IntVar] = {}
         self.label_vars: Dict[Tuple[int, int], tk.StringVar] = {}
-        # Inicializar la matriz de datos con "1" (Igual)
         self.data_matrix = np.ones((self.n, self.n))
-        
         self.create_sliders()
 
     def create_sliders(self):
@@ -477,10 +475,8 @@ class AHPSliderFrame(btk.Frame):
                 btk.Label(pair_frame, textvariable=label_var, width=10, anchor="w").pack(side="left", padx=5)
 
     def on_slider_change(self, slider_value: str, i: int, j: int, label_var: tk.StringVar):
-        """Actualiza la matriz de datos cuando un slider se mueve."""
         idx = int(float(slider_value))
         val, label = AHP_SCALE_MAP[idx]
-        
         self.data_matrix[i, j] = val
         self.data_matrix[j, i] = 1.0 / val
         label_var.set(label)
@@ -498,7 +494,7 @@ class AHPEditorWindow(Toplevel):
         self.grab_set()
         
         self.db = db
-        self.app_callback = app_callback # Función para refrescar el dropdown
+        self.app_callback = app_callback
         
         top_frame = btk.Frame(self, padding=10)
         top_frame.pack(fill="x")
@@ -510,20 +506,14 @@ class AHPEditorWindow(Toplevel):
         self.notebook = btk.Notebook(self)
         self.notebook.pack(fill="both", expand=True, pady=5, padx=5)
         
-        # Crear los 4 frames de sliders
         self.ahp_frames: Dict[str, AHPSliderFrame] = {}
         
-        # AHP para Dimensiones (9x9)
         frame_dims_scrolled = ScrolledFrame(self.notebook, autohide=True) 
         self.ahp_frames['dimensions'] = AHPSliderFrame(frame_dims_scrolled, D_LABELS)
         self.ahp_frames['dimensions'].pack(fill="both", expand=True)
         self.notebook.add(frame_dims_scrolled, text="Dimensiones (9x9)")
 
-        # AHP para Grupos Temporales (3x3)
-        groups = [('past', T_LABELS_SHORT[0:3]),
-                  ('present', T_LABELS_SHORT[3:6]),
-                  ('future', T_LABELS_SHORT[6:9])]
-        
+        groups = [('past', T_LABELS_SHORT[0:3]), ('present', T_LABELS_SHORT[3:6]), ('future', T_LABELS_SHORT[6:9])]
         for name, labels in groups:
             frame = btk.Frame(self.notebook) 
             self.notebook.add(frame, text=f"{name.capitalize()} (3x3)")
@@ -538,7 +528,6 @@ class AHPEditorWindow(Toplevel):
         self.btn_save.pack(side="right", padx=5)
         
     def on_save_strategy(self):
-        """Valida las 4 matrices AHP y las guarda en la DB."""
         strategy_name = self.entry_strategy_name.get()
         if not strategy_name:
             messagebox.showerror("Error de Validación", "El nombre de la estrategia no puede estar vacío.", parent=self)
@@ -549,7 +538,6 @@ class AHPEditorWindow(Toplevel):
         cr_text = ""
         
         try:
-            # Validar las 4 matrices
             for group_name, frame in self.ahp_frames.items():
                 matrix = frame.get_data()
                 validator = AHPValidator(matrix)
@@ -571,14 +559,12 @@ class AHPEditorWindow(Toplevel):
                                      "Ajuste los sliders y vuelva a intentarlo. La estrategia NO se guardó.", parent=self)
                 return
             
-            # Si todo es consistente, guardar en DB
             strategy_id = self.db.save_strategy(strategy_name, weights_to_save, weights_to_save['cr_dims'])
-            
             messagebox.showinfo("Éxito", 
                                 f"Estrategia '{strategy_name}' (ID: {strategy_id}) guardada.\n\n{cr_text}", parent=self)
             
-            self.app_callback() # Refrescar el dropdown en la app principal
-            self.destroy() # Cerrar ventana
+            self.app_callback()
+            self.destroy()
             
         except Exception as e:
             messagebox.showerror("Error de Cálculo", str(e), parent=self)
@@ -586,7 +572,7 @@ class AHPEditorWindow(Toplevel):
 class MainApplication(btk.Window):
 
     def __init__(self, db_manager: DatabaseManager):
-        super().__init__(title="MoW (M9D^X) - Plataforma de Análisis de Portafolio v2.3", themename="cyborg", size=(1500, 950))
+        super().__init__(title="MoW (M9D^X) - Plataforma de Análisis de Portafolio v2.5", themename="cyborg", size=(1500, 950))
         self.db = db_manager
         
         self.portfolio: Dict[int, M9DModel] = {}
@@ -594,19 +580,17 @@ class MainApplication(btk.Window):
         self.analysis_queue = queue.Queue()
         self.current_mow_results: Dict = {}
         
-        # FIX v2.4: Añadir flag de estado para un cierre limpio
         self.running = True
         self._after_job_id = None
         
         self.build_gui()
         self.load_portfolio_from_db()
-        self.after(100, self.load_ollama_models_threaded) # Cargar modelos de Ollama al inicio
+        self.after(100, self.load_ollama_models_threaded)
 
     def build_gui(self):
         main_pane = btk.PanedWindow(self, orient="horizontal")
         main_pane.pack(fill="both", expand=True)
         
-        # Frame contenedor para el panel de control
         control_container_frame = btk.Frame(main_pane)
         main_pane.add(control_container_frame, weight=2)
         
@@ -616,7 +600,6 @@ class MainApplication(btk.Window):
         self.notebook = btk.Notebook(main_pane)
         main_pane.add(self.notebook, weight=5)
         
-        # Crear pestañas
         self.tab_portfolio = self.create_portfolio_tab(self.notebook)
         self.tab_project = self.create_project_tab(self.notebook)
         self.tab_strategy = self.create_strategy_tab(self.notebook)
@@ -633,14 +616,11 @@ class MainApplication(btk.Window):
         frame = ScrolledFrame(parent, autohide=True, padding=15)
         btk.Label(frame, text="PANEL DE CONTROL MoW", font=("Helvetica", 16, "bold")).pack(pady=10)
         
-        # --- Frame de Proyecto ---
         proj_frame = btk.Labelframe(frame, text="Gestión de Proyectos", padding=10)
         proj_frame.pack(fill="x", pady=5)
-        
         btk.Button(proj_frame, text="Crear Nuevo Proyecto...", command=self.on_create_project, bootstyle="info").pack(fill="x", pady=5)
         btk.Button(proj_frame, text="Refrescar Portafolio de DB", command=self.load_portfolio_from_db, bootstyle="info-outline").pack(fill="x", pady=5)
         
-        # --- Frame de Análisis MoW ---
         mow_frame = btk.Labelframe(frame, text="Análisis de Portafolio (MoW)", padding=10)
         mow_frame.pack(fill="x", pady=10)
         
@@ -665,7 +645,6 @@ class MainApplication(btk.Window):
         self.btn_run_mow = btk.Button(mow_frame, text="EJECUTAR ANÁLISIS MoW", command=self.on_run_mow, bootstyle="success")
         self.btn_run_mow.pack(fill="x", pady=10)
         
-        # --- Frame de Estado ---
         status_frame = btk.Labelframe(frame, text="Estado del Sistema", padding=10)
         status_frame.pack(fill="both", pady=10, expand=True)
         self.status_bar_text = btk.StringVar(value="Listo.")
@@ -674,17 +653,35 @@ class MainApplication(btk.Window):
         return frame
 
     def create_portfolio_tab(self, parent) -> btk.Frame:
+        """Pestaña 1: Visualización del Portafolio (Clústeres, Factores)."""
         frame = btk.Frame(parent, padding=10)
         self.charts_portfolio = {}
-        chart_frame = btk.Frame(frame)
-        chart_frame.pack(fill="both", expand=True)
         
-        self.charts_portfolio['cluster_frame'] = btk.Labelframe(chart_frame, text="Gráfico MoW 1: Clústeres de Proyectos (K-Means / PCA)", padding=5)
+        # --- Crear Sub-Pestañas ---
+        mow_notebook = btk.Notebook(frame)
+        mow_notebook.pack(fill="both", expand=True)
+        
+        tab_cluster = btk.Frame(mow_notebook, padding=10)
+        tab_cause = btk.Frame(mow_notebook, padding=10)
+        
+        mow_notebook.add(tab_cluster, text="  Análisis de Clúster  ")
+        mow_notebook.add(tab_cause, text="  Análisis de Causa Raíz  ")
+        
+        # --- Contenido de Pestaña "Análisis de Clúster" ---
+        self.charts_portfolio['cluster_frame'] = btk.Labelframe(tab_cluster, text="Gráfico MoW 1: Clústeres de Proyectos (PCA)", padding=5)
         self.charts_portfolio['cluster_frame'].pack(side="left", fill="both", expand=True, padx=5, pady=5)
         
-        self.charts_portfolio['importance_frame'] = btk.Labelframe(chart_frame, text="Gráfico MoW 2: Análisis de Causa Raíz (Top 10 Factores)", padding=5)
-        self.charts_portfolio['importance_frame'].pack(side="left", fill="both", expand=True, padx=5, pady=5)
+        self.charts_portfolio['cluster_radar_frame'] = btk.Labelframe(tab_cluster, text="Gráfico MoW 2: Perfiles de Clúster (VME)", padding=5)
+        self.charts_portfolio['cluster_radar_frame'].pack(side="left", fill="both", expand=True, padx=5, pady=5)
 
+        # --- Contenido de Pestaña "Análisis de Causa Raíz" ---
+        self.charts_portfolio['importance_frame'] = btk.Labelframe(tab_cause, text="Gráfico MoW 3: Causa Raíz de Clúster (RF)", padding=5)
+        self.charts_portfolio['importance_frame'].pack(side="left", fill="both", expand=True, padx=5, pady=5)
+        
+        self.charts_portfolio['network_frame'] = btk.Labelframe(tab_cause, text="Gráfico MoW 4: Red de Similitud de Proyectos (NX)", padding=5)
+        self.charts_portfolio['network_frame'].pack(side="left", fill="both", expand=True, padx=5, pady=5)
+        
+        # --- Frame de Exportación (común) ---
         export_frame = btk.Labelframe(frame, text="Exportar Resultados Cuantitativos", padding=10)
         export_frame.pack(fill="x", pady=10)
         
@@ -694,6 +691,7 @@ class MainApplication(btk.Window):
         return frame
         
     def create_project_tab(self, parent) -> btk.Frame:
+        """Pestaña 2: Visualización de un proyecto M9D individual (A-B-C)."""
         frame = btk.Frame(parent, padding=10)
         
         selector_frame = btk.Frame(frame)
@@ -703,7 +701,6 @@ class MainApplication(btk.Window):
         self.cb_project_select.pack(side="left", padx=5, fill="x", expand=True)
         self.cb_project_select.bind("<<ComboboxSelected>>", self.on_project_selected)
 
-        # --- Frame de Importación CSV ---
         import_frame = btk.Labelframe(frame, text="Gestión de Realidad (S_ij)", padding=10)
         import_frame.pack(fill="x", pady=10)
         btk.Label(import_frame, text="Momento:").pack(side="left", padx=5)
@@ -712,7 +709,6 @@ class MainApplication(btk.Window):
         self.cb_import_moment.pack(side="left", padx=5)
         btk.Button(import_frame, text="Importar Realidad (CSV)...", command=self.on_import_reality_csv, bootstyle="info").pack(side="left", padx=10)
 
-        # --- Contenedor para gráficos ---
         self.charts_project = {}
         chart_frame = btk.Frame(frame)
         chart_frame.pack(fill="both", expand=True)
@@ -758,7 +754,6 @@ class MainApplication(btk.Window):
         frame = btk.Frame(parent, padding=10)
         btk.Label(frame, text="Análisis Cualitativo con IA (Ollama)", font=("Helvetica", 14, "bold")).pack(pady=10)
         
-        # --- Selector de Modelo Ollama ---
         f_model = btk.Labelframe(frame, text="Selector de Modelo Ollama", padding=10)
         f_model.pack(fill="x", pady=5)
         
@@ -772,7 +767,6 @@ class MainApplication(btk.Window):
         self.txt_ollama_info = ScrolledText(f_model, height=5, width=100, font=("Courier", 9), state="disabled")
         self.txt_ollama_info.pack(fill="x", pady=5, expand=True)
 
-        # --- Selectores de Proyecto ---
         f_select = btk.Frame(frame)
         f_select.pack(fill="x", pady=5)
         btk.Label(f_select, text="Comparar A:").pack(side="left", padx=5)
@@ -783,7 +777,6 @@ class MainApplication(btk.Window):
         self.cb_ollama_proj_b = btk.Combobox(f_select, state="readonly", width=30)
         self.cb_ollama_proj_b.pack(side="left", padx=5)
         
-        # --- Prompt y Respuesta ---
         f_prompt = btk.Labelframe(frame, text="Prompt", padding=5)
         f_prompt.pack(fill="x", pady=5)
         self_prompt_text = (
@@ -827,11 +820,9 @@ class MainApplication(btk.Window):
             strategy_id_str = btk.dialogs.dialogs.prompt(f"Elija un ID de Estrategia:\n{choice_str}", "Asignar Estrategia")
             strategy_id = int(strategy_id_str)
             
-            # Guardar en DB
             project_id = self.db.save_project(name, strategy_id)
-            
             self.set_status(f"Proyecto '{name}' (ID {project_id}) creado. Ahora importe su realidad (CSV).")
-            self.load_portfolio_from_db() # Refrescar toda la app
+            self.load_portfolio_from_db()
             
         except Exception as e:
             messagebox.showerror("Error al Crear", str(e))
@@ -854,18 +845,15 @@ class MainApplication(btk.Window):
             
             self.set_status(f"Importando CSV desde {filepath}...")
             
-            # Cargar y validar
             df = pd.read_csv(filepath, header=None)
             if df.shape != (9, 9):
                 raise ValueError(f"El CSV debe tener exactamente 9 filas y 9 columnas. El archivo tiene {df.shape}.")
             
             scores_matrix = df.to_numpy()
             
-            # Validar rango
             if not (np.all(scores_matrix >= -3) and np.all(scores_matrix <= 3)):
                 raise ValueError("Todas las puntuaciones en el CSV deben estar entre -3 y +3.")
                 
-            # Guardar en DB
             self.db.save_reality(pid, moment, scores_matrix)
             self.set_status(f"Realidad '{moment}' importada para el proyecto {pid}.")
             self.load_portfolio_from_db() # Recargar todo
@@ -969,9 +957,7 @@ class MainApplication(btk.Window):
 
     def check_analysis_queue(self):
         """(Función GUI) Revisa la cola de resultados de hilos."""
-        
-        # FIX v2.4: Si la app no está corriendo, no hacer nada.
-        if not self.running:
+        if not self.running: # FIX v2.4
             return
             
         try:
@@ -1030,14 +1016,11 @@ class MainApplication(btk.Window):
                 self.txt_ollama_info.text.config(state="disabled")
 
         except queue.Empty:
-            # Si no hay resultados, volver a revisar en 100ms
-            pass
+            pass # No hay nada en la cola, está bien
         except Exception as e:
-            # Capturar cualquier otro error de GUI (como app destruida)
             print(f"Error en check_analysis_queue: {e}")
             self.running = False # Detener el bucle
             
-        # FIX v2.4: Volver a programar solo si la app sigue corriendo
         if self.running:
             self._after_job_id = self.after(100, self.check_analysis_queue)
 
@@ -1078,7 +1061,7 @@ class MainApplication(btk.Window):
     def on_export(self, export_type: str):
         self.set_status(f"Preparando exportación: {export_type}...")
         try:
-            path = None # Inicializar path
+            path = None 
             if export_type == 'cluster_csv':
                 if 'clustering_df' not in self.current_mow_results:
                     raise ValueError("No hay datos de clúster para exportar. Ejecute el análisis MoW.")
@@ -1098,7 +1081,6 @@ class MainApplication(btk.Window):
                 model = self.portfolio.get(pid)
                 if not model: raise ValueError("Proyecto no encontrado.")
                 
-                # Exportar el momento seleccionado en el panel de MoW
                 moment_to_export = self.cb_mow_moment.get()
                 if moment_to_export not in model.scores:
                     raise ValueError(f"El proyecto seleccionado no tiene datos para el momento '{moment_to_export}'")
@@ -1130,26 +1112,76 @@ class MainApplication(btk.Window):
         canvas.get_tk_widget().pack(fill="both", expand=True)
 
     def draw_portfolio_charts(self, mow_results: Dict):
-        """Dibuja los 2 gráficos de la pestaña MoW."""
+        """Dibuja los 4 gráficos de la pestaña MoW."""
         try:
-            # 1. Gráfico de Clústeres
+            # 1. Gráfico de Clústeres (PCA)
             fig1, ax1 = plt.subplots(figsize=(7, 6))
             sns.scatterplot(data=mow_results['clustering_df'], x='PC1', y='PC2', hue='Cluster',
                             palette='viridis', s=100, alpha=0.7, legend='full', ax=ax1)
-            ax1.set_title('Gráfico MoW 1: Clústeres de Proyectos (PCA)')
+            ax1.set_title('Gráfico MoW 1: Clústeres (PCA)')
             ax1.set_xlabel('Componente Principal 1'); ax1.set_ylabel('Componente Principal 2')
             ax1.grid(linestyle='--', alpha=0.5)
             fig1.tight_layout()
             self.draw_in_frame(self.charts_portfolio['cluster_frame'], fig1)
             
-            # 2. Gráfico de Causa Raíz
-            fig2, ax2 = plt.subplots(figsize=(7, 6))
-            importance_df = mow_results['importance_df'].head(15)
-            sns.barplot(data=importance_df, x='Importancia', y='Factor (S_i,j)', orient='h', palette='rocket', ax=ax2)
-            ax2.set_title('Gráfico MoW 2: Causa Raíz (Top 15 Factores)')
-            ax2.set_xlabel('Importancia (Random Forest)')
+            # 2. Gráfico Radar de Clústeres (VME)
+            fig2, ax2 = plt.subplots(figsize=(7, 6), subplot_kw=dict(polar=True))
+            centers = mow_results['cluster_centers']
+            num_vars = len(VME_LABELS)
+            angles = np.linspace(0, 2 * np.pi, num_vars, endpoint=False).tolist() + [0]
+            def close_loop(data): return np.concatenate((data, [data[0]]))
+            
+            colors = plt.cm.get_cmap('viridis', len(centers))
+            for i, center in enumerate(centers):
+                ax2.plot(angles, close_loop(center), 'o-', lw=2, label=f"Clúster {i}", color=colors(i/len(centers)))
+                ax2.fill(angles, close_loop(center), alpha=0.2, color=colors(i/len(centers)))
+                
+            ax2.set_xticks(angles[:-1]); ax2.set_xticklabels(VME_LABELS)
+            ax2.set_title("Gráfico MoW 2: Perfiles de Clúster (VME)")
+            ax2.set_ylim(-3, 3); ax2.grid(True)
+            ax2.legend(loc='upper right', bbox_to_anchor=(1.4, 1.1))
             fig2.tight_layout()
-            self.draw_in_frame(self.charts_portfolio['importance_frame'], fig2)
+            self.draw_in_frame(self.charts_portfolio['cluster_radar_frame'], fig2)
+            
+            # 3. Gráfico de Causa Raíz (RF)
+            fig3, ax3 = plt.subplots(figsize=(7, 6))
+            importance_df = mow_results['importance_df'].head(15)
+            sns.barplot(data=importance_df, x='Importancia', y='Factor (S_i,j)', orient='h', palette='rocket', ax=ax3)
+            ax3.set_title('Gráfico MoW 3: Causa Raíz (Top 15 Factores)')
+            ax3.set_xlabel('Importancia (Random Forest)')
+            fig3.tight_layout()
+            self.draw_in_frame(self.charts_portfolio['importance_frame'], fig3)
+            
+            # 4. Gráfico de Red (NetworkX)
+            fig4, ax4 = plt.subplots(figsize=(7, 6))
+            sim_matrix = mow_results['similarity_matrix_full']
+            cluster_df = mow_results['clustering_df']
+            
+            # Filtrar matriz de similitud a solo proyectos comparables
+            comparable_pids = cluster_df['ProjectID'].tolist()
+            all_pids = mow_results['similarity_df']['ProjectID'].tolist()
+            indices = [all_pids.index(pid) for pid in comparable_pids]
+            sim_matrix_filtered = sim_matrix[np.ix_(indices, indices)]
+            
+            # Crear DataFrame con IDs
+            sim_df_adj = pd.DataFrame(sim_matrix_filtered, index=comparable_pids, columns=comparable_pids)
+            
+            # Filtrar bordes por umbral
+            sim_df_adj[sim_df_adj < self.scale_threshold.get()] = 0
+            
+            G = nx.from_pandas_adjacency(sim_df_adj)
+            G.remove_edges_from(nx.selfloop_edges(G)) # Quitar auto-conexiones
+            
+            # Mapear colores por clúster
+            colors_map = cluster_df.set_index('ProjectID')['Cluster'].to_dict()
+            node_colors = [colors(colors_map[node] / (self.spin_clusters.get()-1)) for node in G.nodes()]
+            
+            nx.draw_kamada_kawai(G, ax=ax4, with_labels=True, node_color=node_colors, 
+                                 font_size=8, alpha=0.8, node_size=500)
+            ax4.set_title("Gráfico MoW 4: Red de Similitud (NetworkX)")
+            fig4.tight_layout()
+            self.draw_in_frame(self.charts_portfolio['network_frame'], fig4)
+            
         except Exception as e:
             self.set_status(f"Error al dibujar gráficos MoW: {e}")
 
@@ -1214,9 +1246,8 @@ class MainApplication(btk.Window):
         strategy_list = [f"{s['id']}: {s['name']} (CR: {s['cr']:.3f})" for s in strategies]
         self.cb_golden_strategy['values'] = strategy_list
         if strategy_list:
-            self.cb_golden_strategy.set(strategy_list[-1]) # Seleccionar la última
+            self.cb_golden_strategy.set(strategy_list[-1])
         
-        # Refrescar el árbol de estrategias
         for i in self.tree_strategies.get_children():
             self.tree_strategies.delete(i)
         for s in strategies:
@@ -1226,13 +1257,12 @@ class MainApplication(btk.Window):
         """Inicia un hilo para cargar la lista de modelos de Ollama."""
         self.set_status("Contactando a Ollama para listar modelos...")
         threading.Thread(target=self.run_ollama_list_thread, daemon=True).start()
-        # FIX v2.4: Iniciar el bucle de la cola aquí
-        self.after(100, self.check_analysis_queue)
+        self._after_job_id = self.after(100, self.check_analysis_queue)
         
     def run_ollama_list_thread(self):
         """(Función Hilo) Llama a la API de Ollama 'tags'."""
         service = AnalysisService()
-        response = service.call_ollama('tags', {}) # 'tags' es el endpoint para 'list'
+        response = service.call_ollama('tags', {})
         self.analysis_queue.put({"type": "ollama_list", "data": response})
         
     def on_ollama_model_select(self, event=None):
@@ -1243,7 +1273,6 @@ class MainApplication(btk.Window):
         self.set_status(f"Obteniendo info del modelo: {model_name}...")
         payload = {"name": model_name}
         threading.Thread(target=self.run_ollama_show_thread, args=(payload,), daemon=True).start()
-        # No es necesario llamar a self.after aquí, el bucle check_analysis_queue ya está corriendo
 
     def run_ollama_show_thread(self, payload: Dict):
         """(Función Hilo) Llama a la API de Ollama 'show'."""
@@ -1254,32 +1283,25 @@ class MainApplication(btk.Window):
     def set_status(self, msg: str):
         """Actualiza la barra de estado."""
         print(f"STATUS: {msg}")
-        # Limitar la longitud del mensaje para evitar que el label se expanda demasiado
         if len(msg) > 200:
             msg = msg[:200] + "..."
         try:
             self.status_bar_text.set(f"[{pd.Timestamp.now().strftime('%H:%M:%S')}] {msg}")
         except tk.TclError:
-            # Esto puede pasar si set_status es llamado durante el cierre
             pass
         
     def on_closing(self):
         """Limpia la conexión de la DB al cerrar."""
         if messagebox.askokcancel("Salir", "¿Seguro que quieres salir?"):
-            # FIX v2.4: Implementar cierre elegante
-            self.running = False # Poner el flag en Falso
+            self.running = False
             
-            # Cancelar cualquier job 'after' pendiente
             if self._after_job_id:
                 self.after_cancel(self._after_job_id)
                 self._after_job_id = None
                 
-            # Vaciar la cola de análisis para que los hilos mueran
             while not self.analysis_queue.empty():
-                try:
-                    self.analysis_queue.get(block=False)
-                except queue.Empty:
-                    break
+                try: self.analysis_queue.get(block=False)
+                except queue.Empty: break
             
             self.db.close()
             self.destroy()
@@ -1304,7 +1326,6 @@ if __name__ == "__main__":
         app.protocol("WM_DELETE_WINDOW", app.on_closing)
         app.mainloop()
     except Exception as e:
-        # Capturar errores de DB (ej. PyMySQL no instalado o credenciales incorrectas)
         messagebox.showerror("Error Crítico de Inicialización", 
                              f"No se pudo iniciar la aplicación.\n"
                              f"Verifique su configuración de DB (USE_DB_TYPE) o las dependencias.\n\n"
