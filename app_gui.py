@@ -1,8 +1,8 @@
 # ======================================================================
-# APLICACIÓN DE PRODUCCIÓN MoW (M9D^X) v2.6 (Corregida)
+# APLICACIÓN DE PRODUCCIÓN MoW (M9D^X) v2.8 (con Carga de Demo)
 # ======================================================================
 # Autor: Gemini (Basado en la co-creación con el usuario)
-# Stack v2.6:
+# Stack v2.8:
 # - GUI: Python, Tkinter, ttkbootstrap
 # - Base de Datos: Driver intercambiable (SQLite / MySQL)
 # - Modelos: Numpy, Pandas (para AHP, M9D)
@@ -12,13 +12,16 @@
 # - E/S: Exportación (PDF/CSV/JSON), Importación (CSV)
 # - Producción: Threading y Queue (GUI no bloqueante)
 # ----------------------------------------------------------------------
-# FIX v2.6: Corregido 'AttributeError' para 'btk.dialogs.dialogs.prompt'.
-#           Reemplazado con 'tkinter.simpledialog.askstring'.
+# FIX v2.8 (Tu sugerencia):
+# 1. Añadido botón "Cargar Set de Proyectos Demo" para resolver
+#    el problema de "arranque en frío" (cold start).
+# 2. Corregido 'SyntaxError: unterminated string literal' en T_LABELS_SHORT.
+# 3. Corregido 'TclError: can't add ... as slave' en AHPEditorWindow.
 # ======================================================================
 
 import tkinter as tk
 from tkinter import ttk, messagebox, filedialog, Toplevel, Text, END, Scrollbar, Canvas, Frame
-from tkinter import simpledialog # <-- FIX v2.6: Importación añadida
+from tkinter import simpledialog
 import ttkbootstrap as btk
 from ttkbootstrap.scrolled import ScrolledFrame, ScrolledText
 import numpy as np
@@ -69,7 +72,8 @@ D_LABELS = [
     "D1: Propósito", "D2: Procesos", "D3: Tecnología", "D4: Comunidad",
     "D5: Solución", "D6: Territorio", "D7: Academia", "D8: S. Privado", "D9: S. Público"
 ]
-T_LABELS_SHORT = ["T1(P+)", "T2(P-)", "T3(PN)", "T4(R+)", "T5(R-)",", "T6(RN)", "T7(F+)", "T8(F-)", "T9(FN)"]
+# FIX v2.7: Corregida la coma ('",') que causaba el SyntaxError
+T_LABELS_SHORT = ["T1(P+)", "T2(P-)", "T3(PN)", "T4(R+)", "T5(R-)", "T6(RN)", "T7(F+)", "T8(F-)", "T9(FN)"]
 VME_LABELS = ['Herencia (IH)', 'Situacional (IS)', 'Prospectiva (IP)']
 RI_SAATY = { 3: 0.58, 9: 1.45 }
 AHP_GROUPS = ['dimensions', 'past', 'present', 'future']
@@ -105,9 +109,17 @@ class AHPValidator:
         lambda_vector = weighted_sum_vector / self.weights
         lambda_max = np.mean(lambda_vector)
         
-        ci = (lambda_max - self.n) / (self.n - 1)
+        if (self.n - 1) == 0:
+            ci = 0
+        else:
+            ci = (lambda_max - self.n) / (self.n - 1)
+            
         ri = RI_SAATY.get(self.n)
-        self.consistency_ratio = ci / ri
+        
+        if ri == 0:
+            self.consistency_ratio = 0
+        else:
+            self.consistency_ratio = ci / ri
         
         return self.weights, self.consistency_ratio
 
@@ -216,12 +228,24 @@ class DatabaseManager:
             'w_i': weights['w_i'].tolist(),
             'v_j': {k: v.tolist() for k, v in weights['v_j'].items()}
         })
-        ins = self.tbl_strategies.insert().values(
-            name=name, weights_json=weights_json, consistency_ratio=cr
-        )
-        result = self.conn.execute(ins)
-        self.conn.commit()
-        return result.inserted_primary_key[0]
+        # Upsert (actualizar si el nombre existe, sino insertar)
+        try:
+            ins = self.tbl_strategies.insert().values(
+                name=name, weights_json=weights_json, consistency_ratio=cr
+            )
+            result = self.conn.execute(ins)
+            self.conn.commit()
+            return result.inserted_primary_key[0]
+        except db.exc.IntegrityError: # El nombre ya existe
+            upd = self.tbl_strategies.update().where(self.tbl_strategies.c.name == name).values(
+                weights_json=weights_json, consistency_ratio=cr
+            )
+            self.conn.execute(upd)
+            self.conn.commit()
+            # Devolver el ID existente
+            query = self.tbl_strategies.select().where(self.tbl_strategies.c.name == name)
+            return self.conn.execute(query).fetchone()[0]
+
 
     def get_strategies_list(self) -> List[Dict]:
         query = self.tbl_strategies.select()
@@ -241,10 +265,20 @@ class DatabaseManager:
         return None
 
     def save_project(self, name: str, strategy_id: int) -> int:
-        ins = self.tbl_projects.insert().values(name=name, strategy_id=strategy_id)
-        result = self.conn.execute(ins)
-        self.conn.commit()
-        return result.inserted_primary_key[0]
+        # Upsert
+        try:
+            ins = self.tbl_projects.insert().values(name=name, strategy_id=strategy_id)
+            result = self.conn.execute(ins)
+            self.conn.commit()
+            return result.inserted_primary_key[0]
+        except db.exc.IntegrityError:
+            upd = self.tbl_projects.update().where(self.tbl_projects.c.name == name).values(
+                strategy_id=strategy_id
+            )
+            self.conn.execute(upd)
+            self.conn.commit()
+            query = self.tbl_projects.select().where(self.tbl_projects.c.name == name)
+            return self.conn.execute(query).fetchone()[0]
         
     def save_reality(self, project_id: int, moment: str, scores: np.ndarray):
         scores_json = json.dumps(scores.tolist())
@@ -307,7 +341,7 @@ class AnalysisService:
         if not strategy_vectors:
              raise Exception("Portafolio vacío. No hay proyectos para analizar.")
         
-        # Matriz de similitud NxN (NUEVO)
+        # Matriz de similitud NxN
         similarity_matrix_full = cosine_similarity(strategy_vectors)
         
         # Filtro contra Golden Standard
@@ -323,7 +357,6 @@ class AnalysisService:
         valid_project_ids_for_cluster = []
         for pid in comparable_projects_ids:
             try:
-                # Asegurarse de que el momento exista antes de obtenerlo
                 if moment in self.platform[pid].vme_results:
                     vme_vectors.append(self.platform[pid].get_vme_vector(moment))
                     valid_project_ids_for_cluster.append(pid)
@@ -435,7 +468,7 @@ class ExportService:
         
         c.setFillColorRGB(0, 0, 0)
         c.setFont("Helvetica", 10)
-        c.drawString(inch, inch, f"Reporte generado por MOW v2.6 - {pd.Timestamp.now().strftime('%Y-%m-%d %H:%M')}")
+        c.drawString(inch, inch, f"Reporte generado por MOW v2.7 - {pd.Timestamp.now().strftime('%Y-%m-%d %H:%M')}")
         
         c.save()
 
@@ -509,17 +542,28 @@ class AHPEditorWindow(Toplevel):
         
         self.ahp_frames: Dict[str, AHPSliderFrame] = {}
         
-        frame_dims_scrolled = ScrolledFrame(self.notebook, autohide=True) 
+        # FIX v2.7: El ScrolledFrame debe ir DENTRO de un Frame contenedor
+        # que es el que se añade a la pestaña del notebook.
+        
+        # --- Pestaña Dimensiones (9x9) ---
+        tab_dims_container = btk.Frame(self.notebook, padding=0)
+        frame_dims_scrolled = ScrolledFrame(tab_dims_container, autohide=True)
+        frame_dims_scrolled.pack(fill="both", expand=True)
         self.ahp_frames['dimensions'] = AHPSliderFrame(frame_dims_scrolled, D_LABELS)
         self.ahp_frames['dimensions'].pack(fill="both", expand=True)
-        self.notebook.add(frame_dims_scrolled, text="Dimensiones (9x9)")
+        self.notebook.add(tab_dims_container, text="Dimensiones (9x9)")
 
-        groups = [('past', T_LABELS_SHORT[0:3]), ('present', T_LABELS_SHORT[3:6]), ('future', T_LABELS_SHORT[6:9])]
+        # --- Pestañas Grupos Temporales (3x3) ---
+        groups = [('past', T_LABELS_SHORT[0:3]), 
+                  ('present', T_LABELS_SHORT[3:6]), 
+                  ('future', T_LABELS_SHORT[6:9])]
+        
         for name, labels in groups:
-            frame = btk.Frame(self.notebook) 
+            # No necesitan scroll, son 3x3
+            frame = btk.Frame(self.notebook, padding=20) 
             self.notebook.add(frame, text=f"{name.capitalize()} (3x3)")
             self.ahp_frames[name] = AHPSliderFrame(frame, labels)
-            self.ahp_frames[name].pack(fill="x", expand=True, padx=20, pady=20)
+            self.ahp_frames[name].pack(fill="x", expand=True, padx=20)
         
         bottom_frame = btk.Frame(self, padding=10)
         bottom_frame.pack(fill="x")
@@ -573,7 +617,7 @@ class AHPEditorWindow(Toplevel):
 class MainApplication(btk.Window):
 
     def __init__(self, db_manager: DatabaseManager):
-        super().__init__(title="MoW (M9D^X) - Plataforma de Análisis de Portafolio v2.6", themename="cyborg", size=(1500, 950))
+        super().__init__(title="MoW (M9D^X) - Plataforma de Análisis de Portafolio v2.7", themename="cyborg", size=(1500, 950))
         self.db = db_manager
         
         self.portfolio: Dict[int, M9DModel] = {}
@@ -622,6 +666,10 @@ class MainApplication(btk.Window):
         proj_frame = btk.Labelframe(frame, text="Gestión de Proyectos", padding=10)
         proj_frame.pack(fill="x", pady=5)
         btk.Button(proj_frame, text="Crear Nuevo Proyecto...", command=self.on_create_project, bootstyle="info").pack(fill="x", pady=5)
+        
+        # --- NUEVO BOTÓN DEMO (v2.8) ---
+        btk.Button(proj_frame, text="Cargar Set de Proyectos Demo", command=self.on_load_demo_data, bootstyle="warning-outline").pack(fill="x", pady=(10, 5))
+        
         btk.Button(proj_frame, text="Refrescar Portafolio de DB", command=self.load_portfolio_from_db, bootstyle="info-outline").pack(fill="x", pady=5)
         
         mow_frame = btk.Labelframe(frame, text="Análisis de Portafolio (MoW)", padding=10)
@@ -833,6 +881,66 @@ class MainApplication(btk.Window):
             messagebox.showerror("Error de Entrada", "El ID de la estrategia debe ser un número.")
         except Exception as e:
             messagebox.showerror("Error al Crear", str(e))
+
+    def on_load_demo_data(self):
+        """(NUEVO v2.8) Carga un set de datos demo en la DB."""
+        self.set_status("Cargando set de proyectos demo en segundo plano...")
+        # Deshabilitar botones para evitar clics duplicados
+        self.btn_run_mow.config(state="disabled")
+        self.btn_run_ollama.config(state="disabled")
+        
+        # Ejecutar la carga de datos en un hilo para no congelar la GUI
+        threading.Thread(target=self.run_demo_data_thread, daemon=True).start()
+        self.after(100, self.check_analysis_queue)
+
+    def run_demo_data_thread(self):
+        """(NUEVO v2.8) (Función Hilo) Genera y guarda los datos demo."""
+        try:
+            # 1. Crear Estrategia Demo
+            strategy_dims = {"D9: S. Público": 9.0, "D4: Comunidad": 7.0, "default": 1.0}
+            strategy_states = {
+                "past": {"T2(P-)": 7.0, "default": 1.0},
+                "present": {"T5(R-)": 7.0, "default": 1.0},
+                "future": {"T8(F-)": 9.0, "default": 1.0}
+            }
+            
+            # --- Simular AHP ---
+            weights_to_save = {'v_j': {}}
+            matrix_dims = IAGenerator.get_ahp_matrix(D_LABELS, strategy_dims)
+            weights_dims, cr_dims = AHPValidator(matrix_dims).calculate()
+            weights_to_save['w_i'] = weights_dims
+            weights_to_save['cr_dims'] = cr_dims
+
+            for group in ['past', 'present', 'future']:
+                labels = [l for l in T_LABELS_SHORT if group in l.lower()]
+                matrix = IAGenerator.get_ahp_matrix(labels, strategy_states[group])
+                weights, cr = AHPValidator(matrix).calculate()
+                weights_to_save['v_j'][group] = weights
+            
+            # Guardar Estrategia en DB
+            strategy_id = self.db.save_strategy("Estrategia Demo (Riesgo)", weights_to_save, cr_dims)
+
+            # 2. Crear Proyectos Demo
+            project_profiles = {
+                "Proyecto Crisis (Demo)": "Crisis (D4,D9)",
+                "Proyecto Oportunidad (Demo)": "Oportunidad (D3,D7)",
+                "Proyecto Estable (Demo)": "Baseline Optimista"
+            }
+            
+            for name, profile in project_profiles.items():
+                project_id = self.db.save_project(name, strategy_id)
+                
+                # Generar y guardar t0
+                scores_t0 = IAGenerator.get_scores_matrix(profile)
+                self.db.save_reality(project_id, 't0', scores_t0)
+                
+                # Generar y guardar t1
+                scores_t1 = IAGenerator.get_scores_matrix("Mejora Moderada", base_scores=scores_t0)
+                self.db.save_reality(project_id, 't1', scores_t1)
+                
+            self.analysis_queue.put({"type": "demo_success"})
+        except Exception as e:
+            self.analysis_queue.put({"type": "demo_error", "data": str(e)})
             
     def on_import_reality_csv(self):
         """Importa una matriz 9x9 desde un CSV para el proyecto seleccionado."""
@@ -975,6 +1083,18 @@ class MainApplication(btk.Window):
                 self.draw_portfolio_charts(result['data'])
                 self.set_status("Análisis MoW completado exitosamente.")
                 self.btn_run_mow.config(state="normal")
+            
+            elif result['type'] == 'demo_success':
+                self.set_status("Set de proyectos Demo cargado exitosamente. Refrescando...")
+                self.load_portfolio_from_db()
+                self.btn_run_mow.config(state="normal")
+                self.btn_run_ollama.config(state="normal")
+                
+            elif result['type'] == 'demo_error':
+                messagebox.showerror("Error al Cargar Demo", result['data'])
+                self.set_status(f"Error al cargar datos demo: {result['data']}")
+                self.btn_run_mow.config(state="normal")
+                self.btn_run_ollama.config(state="normal")
                 
             elif result['type'] == 'mow_error':
                 messagebox.showerror("Error de Análisis MoW", result['data'])
@@ -1163,11 +1283,13 @@ class MainApplication(btk.Window):
             sim_matrix = mow_results['similarity_matrix_full']
             cluster_df = mow_results['clustering_df']
             
-            # Mapear IDs a Índices
             all_pids_map = {pid: i for i, pid in enumerate(mow_results['similarity_df']['ProjectID'])}
             comparable_pids = cluster_df['ProjectID'].tolist()
-            indices = [all_pids_map[pid] for pid in comparable_pids]
+            indices = [all_pids_map.get(pid) for pid in comparable_pids if pid in all_pids_map]
             
+            if not indices:
+                raise Exception("No se encontraron IDs comparables en el mapa de PIDs.")
+                
             sim_matrix_filtered = sim_matrix[np.ix_(indices, indices)]
             
             sim_df_adj = pd.DataFrame(sim_matrix_filtered, index=comparable_pids, columns=comparable_pids)
