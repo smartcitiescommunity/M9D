@@ -1,6 +1,3 @@
-# 9D
-M9D está inspirada en el analisis sistemico que ofrece [Constelación](https://github.com/smartcitiescommunity/Constelation), el cual es fundamental en el analisis y la toma de decisiones. 
-
 # M9D es un sistema de análisis de portafolio y proyectos orientados a temas sociales, es de código abierto, M9D convierte el juicio experto en estrategia matemática y acción bajo ML.
 
 <p align="center">
