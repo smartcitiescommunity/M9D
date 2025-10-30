@@ -1,8 +1,8 @@
 # ======================================================================
-# APLICACIÓN DE PRODUCCIÓN MoW (M9D^X) v2.5 (con NetworkX)
+# APLICACIÓN DE PRODUCCIÓN MoW (M9D^X) v2.6 (Corregida)
 # ======================================================================
 # Autor: Gemini (Basado en la co-creación con el usuario)
-# Stack v2.5:
+# Stack v2.6:
 # - GUI: Python, Tkinter, ttkbootstrap
 # - Base de Datos: Driver intercambiable (SQLite / MySQL)
 # - Modelos: Numpy, Pandas (para AHP, M9D)
@@ -12,13 +12,13 @@
 # - E/S: Exportación (PDF/CSV/JSON), Importación (CSV)
 # - Producción: Threading y Queue (GUI no bloqueante)
 # ----------------------------------------------------------------------
-# FIX v2.5: Añadido NetworkX para grafo de similitud de portafolio
-#           Añadido Radar de Clústeres para comparar perfiles VME
-#           Refactorizada la pestaña MoW con sub-pestañas
+# FIX v2.6: Corregido 'AttributeError' para 'btk.dialogs.dialogs.prompt'.
+#           Reemplazado con 'tkinter.simpledialog.askstring'.
 # ======================================================================
 
 import tkinter as tk
 from tkinter import ttk, messagebox, filedialog, Toplevel, Text, END, Scrollbar, Canvas, Frame
+from tkinter import simpledialog # <-- FIX v2.6: Importación añadida
 import ttkbootstrap as btk
 from ttkbootstrap.scrolled import ScrolledFrame, ScrolledText
 import numpy as np
@@ -38,12 +38,12 @@ from typing import List, Dict, Tuple, Any
 import sqlalchemy as db
 from sqlalchemy import create_engine, Table, Column, Integer, String, Float, MetaData, ForeignKey, Text as DBText
 
-# --- Librerías de ML y Grafos ---
+# --- Librerías de ML ---
 from sklearn.cluster import KMeans
 from sklearn.decomposition import PCA
 from sklearn.metrics.pairwise import cosine_similarity
 from sklearn.ensemble import RandomForestClassifier
-import networkx as nx # <-- NUEVO
+import networkx as nx
 
 # --- Librerías de Exportación ---
 from reportlab.pdfgen import canvas
@@ -323,6 +323,7 @@ class AnalysisService:
         valid_project_ids_for_cluster = []
         for pid in comparable_projects_ids:
             try:
+                # Asegurarse de que el momento exista antes de obtenerlo
                 if moment in self.platform[pid].vme_results:
                     vme_vectors.append(self.platform[pid].get_vme_vector(moment))
                     valid_project_ids_for_cluster.append(pid)
@@ -591,6 +592,7 @@ class MainApplication(btk.Window):
         main_pane = btk.PanedWindow(self, orient="horizontal")
         main_pane.pack(fill="both", expand=True)
         
+        # Frame contenedor para el panel de control
         control_container_frame = btk.Frame(main_pane)
         main_pane.add(control_container_frame, weight=2)
         
@@ -600,6 +602,7 @@ class MainApplication(btk.Window):
         self.notebook = btk.Notebook(main_pane)
         main_pane.add(self.notebook, weight=5)
         
+        # Crear pestañas
         self.tab_portfolio = self.create_portfolio_tab(self.notebook)
         self.tab_project = self.create_project_tab(self.notebook)
         self.tab_strategy = self.create_strategy_tab(self.notebook)
@@ -808,7 +811,8 @@ class MainApplication(btk.Window):
     def on_create_project(self):
         """Abre un diálogo para crear un nuevo proyecto."""
         try:
-            name = btk.dialogs.dialogs.prompt("Nombre del Nuevo Proyecto:", "Crear Proyecto")
+            # FIX v2.6: Usar simpledialog.askstring
+            name = simpledialog.askstring("Crear Proyecto", "Nombre del Nuevo Proyecto:", parent=self)
             if not name: return
             
             strategies = self.db.get_strategies_list()
@@ -817,13 +821,20 @@ class MainApplication(btk.Window):
                 return
             
             choice_str = "\n".join([f"{s['id']}: {s['name']}" for s in strategies])
-            strategy_id_str = btk.dialogs.dialogs.prompt(f"Elija un ID de Estrategia:\n{choice_str}", "Asignar Estrategia")
+            # FIX v2.6: Usar simpledialog.askstring
+            strategy_id_str = simpledialog.askstring("Asignar Estrategia", f"Elija un ID de Estrategia:\n{choice_str}", parent=self)
+            
+            if not strategy_id_str: return # El usuario canceló
             strategy_id = int(strategy_id_str)
             
+            # Guardar en DB
             project_id = self.db.save_project(name, strategy_id)
-            self.set_status(f"Proyecto '{name}' (ID {project_id}) creado. Ahora importe su realidad (CSV).")
-            self.load_portfolio_from_db()
             
+            self.set_status(f"Proyecto '{name}' (ID {project_id}) creado. Ahora importe su realidad (CSV).")
+            self.load_portfolio_from_db() # Refrescar toda la app
+            
+        except ValueError:
+            messagebox.showerror("Error de Entrada", "El ID de la estrategia debe ser un número.")
         except Exception as e:
             messagebox.showerror("Error al Crear", str(e))
             
@@ -957,7 +968,7 @@ class MainApplication(btk.Window):
 
     def check_analysis_queue(self):
         """(Función GUI) Revisa la cola de resultados de hilos."""
-        if not self.running: # FIX v2.4
+        if not self.running: 
             return
             
         try:
@@ -1016,10 +1027,10 @@ class MainApplication(btk.Window):
                 self.txt_ollama_info.text.config(state="disabled")
 
         except queue.Empty:
-            pass # No hay nada en la cola, está bien
+            pass
         except Exception as e:
             print(f"Error en check_analysis_queue: {e}")
-            self.running = False # Detener el bucle
+            self.running = False
             
         if self.running:
             self._after_job_id = self.after(100, self.check_analysis_queue)
@@ -1045,9 +1056,8 @@ class MainApplication(btk.Window):
                 return
 
             if vme_b is None:
-                # Simular t1 si no existe para el gráfico
                 scores_t0 = model.scores['t0']
-                scores_t1 = scores_t0.copy() # Mostrar A vs A
+                scores_t1 = scores_t0.copy() 
                 model.set_reality_scores(scores_t1, 't1')
                 vme_b, pbt_b = model.calculate_vme('t1')
                 self.set_status(f"Proyecto {pid} cargado. (Momento t1 no encontrado, mostrando t0 vs t0)")
@@ -1157,27 +1167,25 @@ class MainApplication(btk.Window):
             sim_matrix = mow_results['similarity_matrix_full']
             cluster_df = mow_results['clustering_df']
             
-            # Filtrar matriz de similitud a solo proyectos comparables
+            # Mapear IDs a Índices
+            all_pids_map = {pid: i for i, pid in enumerate(mow_results['similarity_df']['ProjectID'])}
             comparable_pids = cluster_df['ProjectID'].tolist()
-            all_pids = mow_results['similarity_df']['ProjectID'].tolist()
-            indices = [all_pids.index(pid) for pid in comparable_pids]
+            indices = [all_pids_map[pid] for pid in comparable_pids]
+            
             sim_matrix_filtered = sim_matrix[np.ix_(indices, indices)]
             
-            # Crear DataFrame con IDs
             sim_df_adj = pd.DataFrame(sim_matrix_filtered, index=comparable_pids, columns=comparable_pids)
             
-            # Filtrar bordes por umbral
             sim_df_adj[sim_df_adj < self.scale_threshold.get()] = 0
             
             G = nx.from_pandas_adjacency(sim_df_adj)
-            G.remove_edges_from(nx.selfloop_edges(G)) # Quitar auto-conexiones
+            G.remove_edges_from(nx.selfloop_edges(G))
             
-            # Mapear colores por clúster
             colors_map = cluster_df.set_index('ProjectID')['Cluster'].to_dict()
-            node_colors = [colors(colors_map[node] / (self.spin_clusters.get()-1)) for node in G.nodes()]
+            node_colors = [colors(colors_map.get(node, -1) / (self.spin_clusters.get()-1)) for node in G.nodes()]
             
             nx.draw_kamada_kawai(G, ax=ax4, with_labels=True, node_color=node_colors, 
-                                 font_size=8, alpha=0.8, node_size=500)
+                                 font_size=8, alpha=0.8, node_size=500, labels={pid: name for pid, name in cluster_df[['ProjectID', 'ProjectName']].values})
             ax4.set_title("Gráfico MoW 4: Red de Similitud (NetworkX)")
             fig4.tight_layout()
             self.draw_in_frame(self.charts_portfolio['network_frame'], fig4)
