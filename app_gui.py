@@ -21,11 +21,12 @@
 # 5. Añadida la clase 'IAGenerator' (antes faltaba).
 # 6. (Tu sugerencia) Añadido botón "Importar Proyecto (M9D JSON)".
 # 7. (Tu sugerencia) Añadido botón "Clonar Proyecto Seleccionado".
+# 8. (Tu sugerencia) Añadida lectura de 'm9d.ini' para configuración.
 # ======================================================================
 
 import tkinter as tk
 from tkinter import ttk, messagebox, filedialog, Toplevel, Text, END, Scrollbar, Canvas, Frame
-from tkinter import simpledialog # FIX v2.6
+from tkinter import simpledialog
 import ttkbootstrap as btk
 from ttkbootstrap.scrolled import ScrolledFrame, ScrolledText
 import numpy as np
@@ -39,6 +40,7 @@ import os
 import threading
 import queue
 import requests  # Para Ollama
+import configparser # <-- NUEVO v3.0
 from typing import List, Dict, Tuple, Any
 
 # --- Librerías de Base de Datos ---
@@ -61,22 +63,37 @@ from reportlab.lib.units import inch
 # SECCIÓN 1: CONSTANTES Y CONFIGURACIÓN
 # ======================================================================
 
-# --- CONFIGURACIÓN DE BASE DE DATOS ---
-USE_DB_TYPE = 'sqlite'  # Cambia a 'mysql' para usar MySQL
-DB_CONFIG = {
-    'sqlite': 'sqlite:///mow_portfolio_v2.db',
-    'mysql': 'mysql+pymysql://USUARIO:PASSWORD@HOST:PUERTO/NOMBRE_DB'
-}
+# --- Cargar Configuración desde m9d.ini ---
+config = configparser.ConfigParser()
+config.read('m9d.ini')
 
-# --- CONFIGURACIÓN DE OLLAMA ---
-OLLAMA_API_URL = "http://localhost:11434"
+try:
+    # Configuración de DB
+    USE_DB_TYPE = config.get('Database', 'db_type', fallback='sqlite')
+    DB_CONFIG = {}
+    if USE_DB_TYPE == 'mysql':
+        DB_CONFIG['mysql'] = (
+            f"mysql+pymysql://{config.get('Database', 'mysql_user')}:{config.get('Database', 'mysql_pass')}@"
+            f"{config.get('Database', 'mysql_host')}:{config.get('Database', 'mysql_port')}/"
+            f"{config.get('Database', 'mysql_db_name')}"
+        )
+    else:
+        DB_CONFIG['sqlite'] = f"sqlite:///{config.get('Database', 'sqlite_db_name', fallback='mow_portfolio_v2.db')}"
+
+    # Configuración de Ollama
+    OLLAMA_API_URL = config.get('Ollama', 'api_url', fallback="http://localhost:11434")
+
+except Exception as e:
+    print(f"Error al leer m9d.ini: {e}. Usando valores por defecto.")
+    USE_DB_TYPE = 'sqlite'
+    DB_CONFIG = {'sqlite': 'sqlite:///mow_portfolio_v2.db'}
+    OLLAMA_API_URL = "http://localhost:11434"
 
 # --- Etiquetas del Modelo ---
 D_LABELS = [
     "D1: Propósito", "D2: Procesos", "D3: Tecnología", "D4: Comunidad",
     "D5: Solución", "D6: Territorio", "D7: Academia", "D8: S. Privado", "D9: S. Público"
 ]
-# FIX v2.7: Corregida la coma ('",')
 T_LABELS_SHORT = ["T1(P+)", "T2(P-)", "T3(PN)", "T4(R+)", "T5(R-)", "T6(RN)", "T7(F+)", "T8(F-)", "T9(FN)"]
 VME_LABELS = ['Herencia (IH)', 'Situacional (IS)', 'Prospectiva (IP)']
 RI_SAATY = { 3: 0.58, 9: 1.45 }
@@ -178,7 +195,6 @@ class M9DModel:
                 "project_id": self.project_id,
                 "error": f"Datos no encontrados para el momento {moment}"
              }
-        # Asegurarse de que los resultados VME/PBT para ese momento estén calculados
         if moment not in self.vme_results:
             self.calculate_vme(moment)
             
@@ -201,7 +217,6 @@ class M9DModel:
             }
         }
 
-# FIX v2.8: Añadida la clase IAGenerator
 class IAGenerator:
     """Genera juicios y puntuaciones para simular a un equipo de expertos."""
     
@@ -224,24 +239,22 @@ class IAGenerator:
         """Genera un diccionario de estrategia completo y validado."""
         weights_to_save = {'v_j': {}}
         
-        # 1. Validar Dimensiones (w_i)
         matrix_dims = IAGenerator.get_ahp_matrix(D_LABELS, dim_profile)
         validator_dims = AHPValidator(matrix_dims)
         weights_dims, cr_dims = validator_dims.calculate()
         
-        if cr_dims > 0.10: # Re-intentar si es inconsistente
+        if cr_dims > 0.10: 
             return IAGenerator.generate_ahp_strategy(dim_profile, state_profile) 
 
         weights_to_save['w_i'] = weights_dims
         weights_to_save['cr_dims'] = cr_dims
 
-        # 2. Validar Estados (v_j)
         for group in ['past', 'present', 'future']:
             labels = [l for l in T_LABELS_SHORT if group in l.lower()]
             matrix = IAGenerator.get_ahp_matrix(labels, state_profile[group])
             validator = AHPValidator(matrix)
             weights, cr = validator.calculate()
-            if cr > 0.10: # Re-intentar si es inconsistente
+            if cr > 0.10: 
                 return IAGenerator.generate_ahp_strategy(dim_profile, state_profile)
             weights_to_save['v_j'][group] = weights
 
@@ -1020,8 +1033,10 @@ class MainApplication(btk.Window):
     def on_load_demo_data(self):
         """(NUEVO v2.8) Carga un set de datos demo en la DB."""
         self.set_status("Cargando set de proyectos demo en segundo plano...")
+        # Deshabilitar botones para evitar clics duplicados
         self.btn_run_mow.config(state="disabled")
         
+        # Ejecutar la carga de datos en un hilo para no congelar la GUI
         threading.Thread(target=self.run_demo_data_thread, daemon=True).start()
         self.after(100, self.check_analysis_queue)
 
@@ -1286,7 +1301,7 @@ class MainApplication(btk.Window):
                         f"Quantización: {data.get('details', {}).get('quantization_level', 'N/A')}\n"
                         f"Modificado: {data.get('modified_at', 'N/A').split('T')[0]}"
                     )
-                    self.txt_ollama_info.text.insert("1.0", details)
+                    self.txt_ollama_info.text.insert("1.out-of-range", details)
                 self.txt_ollama_info.text.config(state="disabled")
 
         except queue.Empty:
@@ -1595,7 +1610,7 @@ if __name__ == "__main__":
 
     # --- Inicializar DB y App ---
     try:
-        db_manager = DatabaseManager(USE_DB_TYPE, DB_CONFIG)
+        db_manager = DatabaseManager(USE_DB_TYPE, DB_CONFIG[USE_DB_TYPE])
         app = MainApplication(db_manager)
         app.protocol("WM_DELETE_WINDOW", app.on_closing)
         app.mainloop()
