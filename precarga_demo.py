@@ -11,9 +11,18 @@ import json
 import configparser
 import sqlalchemy as db
 from sqlalchemy import create_engine, Table, Column, Integer, String, Float, MetaData, ForeignKey, Text as DBText
+from typing import List, Dict, Tuple, Any
 
 # --- Copia de Clases Lógicas Necesarias ---
 # (Duplicamos las clases aquí para que el script sea 100% standalone)
+
+# --- Etiquetas del Modelo ---
+D_LABELS = [
+    "D1: Propósito", "D2: Procesos", "D3: Tecnología", "D4: Comunidad",
+    "D5: Solución", "D6: Territorio", "D7: Academia", "D8: S. Privado", "D9: S. Público"
+]
+T_LABELS_SHORT = ["T1(P+)", "T2(P-)", "T3(PN)", "T4(R+)", "T5(R-)", "T6(RN)", "T7(F+)", "T8(F-)", "T9(FN)"]
+RI_SAATY = { 3: 0.58, 9: 1.45 }
 
 class AHPValidator:
     RI_SAATY = { 3: 0.58, 9: 1.45 }
@@ -52,16 +61,18 @@ class IAGenerator:
     @staticmethod
     def generate_ahp_strategy(dim_profile: Dict, state_profile: Dict) -> Dict:
         weights_to_save = {'v_j': {}}
-        matrix_dims = IAGenerator.get_ahp_matrix([f"D{i+1}" for i in range(9)], dim_profile)
-        weights_dims, cr_dims = AHPValidator(matrix_dims).calculate()
+        matrix_dims = IAGenerator.get_ahp_matrix(D_LABELS, dim_profile)
+        validator_dims = AHPValidator(matrix_dims)
+        weights_dims, cr_dims = validator_dims.calculate()
         if cr_dims > 0.10:
             return IAGenerator.generate_ahp_strategy(dim_profile, state_profile)
         weights_to_save['w_i'] = weights_dims
         weights_to_save['cr_dims'] = cr_dims
         for group in ['past', 'present', 'future']:
-            labels = [f"T{i+1}" for i in range(3)] # Etiquetas placeholder
+            labels = [l for l in T_LABELS_SHORT if group in l.lower()]
             matrix = IAGenerator.get_ahp_matrix(labels, state_profile[group])
-            weights, cr = AHPValidator(matrix).calculate()
+            validator = AHPValidator(matrix)
+            weights, cr = validator.calculate()
             if cr > 0.10:
                 return IAGenerator.generate_ahp_strategy(dim_profile, state_profile)
             weights_to_save['v_j'][group] = weights
@@ -158,7 +169,13 @@ def precargar_demo():
     
     # 1. Leer el archivo de configuración .ini
     config = configparser.ConfigParser()
-    config.read('m9d.ini')
+    config_path = 'm9d.ini'
+    if not os.path.exists(config_path):
+        print(f"ERROR: No se encontró el archivo '{config_path}'.")
+        print("Por favor, cree el archivo 'm9d.ini' en la misma carpeta.")
+        return
+        
+    config.read(config_path)
     
     db_type = config.get('Database', 'db_type', fallback='sqlite')
     db_config_dict = {}
@@ -168,7 +185,7 @@ def precargar_demo():
         db_config_dict['mysql_host'] = config.get('Database', 'mysql_host')
         db_config_dict['mysql_port'] = config.get('Database', 'mysql_port')
         db_config_dict['mysql_db_name'] = config.get('Database', 'mysql_db_name')
-    else:
+    else: # sqlite por defecto
         db_config_dict['sqlite_db_name'] = config.get('Database', 'sqlite_db_name', fallback='mow_portfolio_v2.db')
 
     try:
@@ -180,7 +197,7 @@ def precargar_demo():
     try:
         # 2. Crear Estrategia Demo
         print("Paso 1: Creando Estrategia Demo...")
-        strategy_dims = {"D9": 9.0, "D4": 7.0, "default": 1.0}
+        strategy_dims = {"D9: S. Público": 9.0, "D4: Comunidad": 7.0, "default": 1.0}
         strategy_states = {
             "past": {"T2(P-)": 7.0, "default": 1.0},
             "present": {"T5(R-)": 7.0, "default": 1.0},
