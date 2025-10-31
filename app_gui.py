@@ -703,7 +703,7 @@ class AHPEditorWindow(Toplevel):
 class MainApplication(btk.Window):
 
     def __init__(self, db_manager: DatabaseManager):
-        super().__init__(title="MoW (M9D^X) - Plataforma de Análisis de Portafolio v2.8", themename="cyborg", size=(1500, 950))
+        super().__init__(title="MoW (M9D^X) - Plataforma de Análisis de Portafolio v2.9", themename="cyborg", size=(1500, 950))
         self.db = db_manager
         
         self.portfolio: Dict[int, M9DModel] = {}
@@ -1336,7 +1336,7 @@ class MainApplication(btk.Window):
                     path = filedialog.asksaveasfilename(defaultextension=".pdf", filetypes=[("PDF Files", "*.pdf")])
                     if path: ExportService.export_to_pdf(data_pkg, path)
                 else: # project_json
-                    path = filedialog.asksaveasfilename(defaultextension=".json", filetypes=[("JSON Files", "*.json")])
+                    path = filedialog.asksaveasfilename(defaultextension=".json", filetypes=[("M9D JSON Files", "*.json")])
                     if path: ExportService.export_to_json(data_pkg, path)
             
             if path:
