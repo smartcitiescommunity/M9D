@@ -67,8 +67,8 @@ Esta es una aplicación de escritorio.
 
 1.  Clona este repositorio:
     ```bash
-    git clone [https://github.com/TU_USUARIO/TU_REPOSITORIO.git](https://github.com/TU_USUARIO/TU_REPOSITORIO.git)
-    cd TU_REPOSITORIO
+    git clone https://github.com/smartcitiescommunity/M9D.git
+    cd M9D
     ```
 2.  (Recomendado) Crea un entorno virtual:
     ```bash
@@ -83,18 +83,18 @@ Esta es una aplicación de escritorio.
 ### Ejecución
 
 1.  Asegúrate de que Ollama esté corriendo en otra terminal.
-2.  Ejecuta la aplicación (asumiendo que la guardaste como `mow_app_v2.py`):
+2.  Ejecuta la aplicación (asumiendo que la guardaste como `app.py`):
     ```bash
-    python mow_app_v2.py
+    python app.py
     ```
 3.  ¡Listo! Sigue el flujo de trabajo:
     * **Paso 1:** Ve a la Pestaña `(3) Estrategias (AHP)` -> "Crear Nueva Estrategia...".
     * **Paso 2:** Llena los 45 sliders y guarda una estrategia válida (CR < 10%).
     * **Paso 3:** Ve al `Panel de Control` -> "Crear Nuevo Proyecto...".
-    * **Paso 4:** Ve a la Pestaña `(2) Proyecto (M9D)` -> "Importar Realidad (CSV)...".
+    * **Paso 4:** Ve a la Pestaña `(2) Proyecto` -> "Importar Realidad (CSV)...".
     * **Paso 5:** Repite 3 y 4 para varios proyectos.
-    * **Paso 6:** Ve al `Panel de Control` -> "EJECUTAR ANÁLISIS MoW".
-    * **Paso 7:** Revisa los resultados en la Pestaña `(1) Portafolio (MoW)`.
+    * **Paso 6:** Ve al `Panel de Control` -> "EJECUTAR ANÁLISIS".
+    * **Paso 7:** Revisa los resultados en la Pestaña `(1) Portafolio`.
 
 ---
 
