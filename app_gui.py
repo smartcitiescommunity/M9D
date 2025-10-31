@@ -26,7 +26,7 @@
 
 import tkinter as tk
 from tkinter import ttk, messagebox, filedialog, Toplevel, Text, END, Scrollbar, Canvas, Frame
-from tkinter import simpledialog
+from tkinter import simpledialog # FIX v2.6
 import ttkbootstrap as btk
 from ttkbootstrap.scrolled import ScrolledFrame, ScrolledText
 import numpy as np
@@ -94,6 +94,7 @@ D_LABELS = [
     "D1: Propósito", "D2: Procesos", "D3: Tecnología", "D4: Comunidad",
     "D5: Solución", "D6: Territorio", "D7: Academia", "D8: S. Privado", "D9: S. Público"
 ]
+# FIX v2.7: Corregida la coma ('",')
 T_LABELS_SHORT = ["T1(P+)", "T2(P-)", "T3(PN)", "T4(R+)", "T5(R-)", "T6(RN)", "T7(F+)", "T8(F-)", "T9(FN)"]
 VME_LABELS = ['Herencia (IH)', 'Situacional (IS)', 'Prospectiva (IP)']
 RI_SAATY = { 3: 0.58, 9: 1.45 }
@@ -217,6 +218,7 @@ class M9DModel:
             }
         }
 
+# FIX v2.8: Añadida la clase IAGenerator
 class IAGenerator:
     """Genera juicios y puntuaciones para simular a un equipo de expertos."""
     
@@ -243,7 +245,7 @@ class IAGenerator:
         validator_dims = AHPValidator(matrix_dims)
         weights_dims, cr_dims = validator_dims.calculate()
         
-        if cr_dims > 0.10: 
+        if cr_dims > 0.10: # Re-intentar si es inconsistente
             return IAGenerator.generate_ahp_strategy(dim_profile, state_profile) 
 
         weights_to_save['w_i'] = weights_dims
@@ -254,7 +256,7 @@ class IAGenerator:
             matrix = IAGenerator.get_ahp_matrix(labels, state_profile[group])
             validator = AHPValidator(matrix)
             weights, cr = validator.calculate()
-            if cr > 0.10: 
+            if cr > 0.10: # Re-intentar si es inconsistente
                 return IAGenerator.generate_ahp_strategy(dim_profile, state_profile)
             weights_to_save['v_j'][group] = weights
 
@@ -573,7 +575,7 @@ class ExportService:
         
         c.setFillColorRGB(0, 0, 0)
         c.setFont("Helvetica", 10)
-        c.drawString(inch, inch, f"Reporte generado por MOW v2.9 - {pd.Timestamp.now().strftime('%Y-%m-%d %H:%M')}")
+        c.drawString(inch, inch, f"Reporte generado por MOW v3.0 - {pd.Timestamp.now().strftime('%Y-%m-%d %H:%M')}")
         
         c.save()
 
@@ -717,7 +719,7 @@ class AHPEditorWindow(Toplevel):
 class MainApplication(btk.Window):
 
     def __init__(self, db_manager: DatabaseManager):
-        super().__init__(title="MoW (M9D^X) - Plataforma de Análisis de Portafolio v2.9", themename="cyborg", size=(1500, 950))
+        super().__init__(title="MoW (M9D^X) - Plataforma de Análisis de Portafolio v3.0", themename="cyborg", size=(1500, 950))
         self.db = db_manager
         
         self.portfolio: Dict[int, M9DModel] = {}
@@ -767,11 +769,12 @@ class MainApplication(btk.Window):
         proj_frame.pack(fill="x", pady=5)
         btk.Button(proj_frame, text="Crear Nuevo Proyecto...", command=self.on_create_project, bootstyle="info").pack(fill="x", pady=5)
         btk.Button(proj_frame, text="Importar Proyecto (M9D JSON)...", command=self.on_import_project_json, bootstyle="info").pack(fill="x", pady=5)
-        
-        # --- NUEVO BOTÓN DEMO (v2.8) ---
+        btk.Button(proj_frame, text="Importar Múltiples (M9D JSON)...", command=self.on_import_multiple_projects_json, bootstyle="info").pack(fill="x", pady=5)
+
+        # --- BOTÓN DEMO ---
         btk.Button(proj_frame, text="Cargar Set de Proyectos Demo", command=self.on_load_demo_data, bootstyle="warning-outline").pack(fill="x", pady=(10, 5))
         
-        # --- NUEVO BOTÓN CLONAR (v2.9) ---
+        # --- BOTÓN CLONAR ---
         btk.Button(proj_frame, text="Clonar Proyecto Seleccionado", command=self.on_clone_project, bootstyle="secondary").pack(fill="x", pady=5)
         
         btk.Button(proj_frame, text="Refrescar Portafolio de DB", command=self.load_portfolio_from_db, bootstyle="info-outline").pack(fill="x", pady=5)
@@ -1030,13 +1033,55 @@ class MainApplication(btk.Window):
             messagebox.showerror("Error de Importación JSON", str(e))
             self.set_status(f"Error al importar JSON: {e}")
 
+    def on_import_multiple_projects_json(self):
+        """(NUEVO v3.0) Importa múltiples proyectos M9D JSON."""
+        try:
+            filepaths = filedialog.askopenfilenames(
+                title="Importar MÚLTIPLES Proyectos (M9D JSON)",
+                filetypes=[("M9D JSON Files", "*.json"), ("All Files", "*.*")]
+            )
+            if not filepaths: return
+            
+            self.set_status(f"Importando {len(filepaths)} proyectos M9D...")
+            
+            imported_count = 0
+            for path in filepaths:
+                try:
+                    with open(path, 'r', encoding='utf-8') as f:
+                        data = json.load(f)
+                    
+                    if 'strategy' not in data or 'project_name' not in data or 'reality' not in data:
+                        print(f"Omitiendo {path}: formato no válido.")
+                        continue
+                    
+                    strategy_data = data['strategy']
+                    temp_weights = {'w_i': np.array(strategy_data['w_i']), 'v_j': {}}
+                    for group, weights in strategy_data['v_j'].items():
+                        temp_weights['v_j'][group] = np.array(weights)
+                    
+                    strategy_name = f"Importada - {data['project_name']}"
+                    strategy_id = self.db.save_strategy(strategy_name, temp_weights, 0.0)
+                    project_id = self.db.save_project(data['project_name'], strategy_id)
+                    reality_data = data['reality']
+                    moment = reality_data.get('moment', 't0')
+                    scores_matrix = np.array(reality_data['scores_S_ij'])
+                    self.db.save_reality(project_id, moment, scores_matrix)
+                    imported_count += 1
+                except Exception as e:
+                    print(f"Error al importar {path}: {e}")
+
+            self.set_status(f"{imported_count} de {len(filepaths)} proyectos importados exitosamente.")
+            self.load_portfolio_from_db()
+
+        except Exception as e:
+            messagebox.showerror("Error de Importación Múltiple", str(e))
+            self.set_status(f"Error en importación múltiple: {e}")
+
     def on_load_demo_data(self):
         """(NUEVO v2.8) Carga un set de datos demo en la DB."""
         self.set_status("Cargando set de proyectos demo en segundo plano...")
-        # Deshabilitar botones para evitar clics duplicados
         self.btn_run_mow.config(state="disabled")
         
-        # Ejecutar la carga de datos en un hilo para no congelar la GUI
         threading.Thread(target=self.run_demo_data_thread, daemon=True).start()
         self.after(100, self.check_analysis_queue)
 
@@ -1301,7 +1346,7 @@ class MainApplication(btk.Window):
                         f"Quantización: {data.get('details', {}).get('quantization_level', 'N/A')}\n"
                         f"Modificado: {data.get('modified_at', 'N/A').split('T')[0]}"
                     )
-                    self.txt_ollama_info.text.insert("1.out-of-range", details)
+                    self.txt_ollama_info.text.insert("1.0", details)
                 self.txt_ollama_info.text.config(state="disabled")
 
         except queue.Empty:
