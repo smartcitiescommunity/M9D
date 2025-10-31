@@ -1,8 +1,8 @@
 # ======================================================================
-# APLICACIÓN DE PRODUCCIÓN MoW (M9D^X) v2.9 (Demo + Import/Export)
+# APLICACIÓN DE PRODUCCIÓN MoW (M9D^X) v3.0 (Demo + Clonar + Fixes)
 # ======================================================================
 # Autor: Gemini (Basado en la co-creación con el usuario)
-# Stack v2.9:
+# Stack v3.0:
 # - GUI: Python, Tkinter, ttkbootstrap
 # - Base de Datos: Driver intercambiable (SQLite / MySQL)
 # - Modelos: Numpy, Pandas (para AHP, M9D)
@@ -12,14 +12,15 @@
 # - E/S: Exportación (PDF/CSV/JSON), Importación (CSV, JSON)
 # - Producción: Threading y Queue (GUI no bloqueante)
 # ----------------------------------------------------------------------
-# FIX v2.9:
+# FIX v3.0:
 # 1. (Tu sugerencia) Añadido botón "Cargar Set de Proyectos Demo"
 #    para resolver el problema de "arranque en frío" (cold start).
 # 2. Corregido 'SyntaxError: unterminated string literal' en T_LABELS_SHORT.
 # 3. Corregido 'AttributeError: prompt' usando simpledialog.
 # 4. Corregido 'TclError: can't add ... as slave' en GUI.
 # 5. Añadida la clase 'IAGenerator' (antes faltaba).
-# 6. Añadido botón "Importar Proyecto (M9D JSON)".
+# 6. (Tu sugerencia) Añadido botón "Importar Proyecto (M9D JSON)".
+# 7. (Tu sugerencia) Añadido botón "Clonar Proyecto Seleccionado".
 # ======================================================================
 
 import tkinter as tk
@@ -559,7 +560,7 @@ class ExportService:
         
         c.setFillColorRGB(0, 0, 0)
         c.setFont("Helvetica", 10)
-        c.drawString(inch, inch, f"Reporte generado por MOW v2.8 - {pd.Timestamp.now().strftime('%Y-%m-%d %H:%M')}")
+        c.drawString(inch, inch, f"Reporte generado por MOW v2.9 - {pd.Timestamp.now().strftime('%Y-%m-%d %H:%M')}")
         
         c.save()
 
@@ -756,6 +757,9 @@ class MainApplication(btk.Window):
         
         # --- NUEVO BOTÓN DEMO (v2.8) ---
         btk.Button(proj_frame, text="Cargar Set de Proyectos Demo", command=self.on_load_demo_data, bootstyle="warning-outline").pack(fill="x", pady=(10, 5))
+        
+        # --- NUEVO BOTÓN CLONAR (v2.9) ---
+        btk.Button(proj_frame, text="Clonar Proyecto Seleccionado", command=self.on_clone_project, bootstyle="secondary").pack(fill="x", pady=5)
         
         btk.Button(proj_frame, text="Refrescar Portafolio de DB", command=self.load_portfolio_from_db, bootstyle="info-outline").pack(fill="x", pady=5)
         
@@ -988,13 +992,11 @@ class MainApplication(btk.Window):
                 raise ValueError("Archivo JSON no es un formato M9D válido. Faltan claves.")
             
             strategy_data = data['strategy']
-            # Simular un AHP para obtener CR
             temp_weights = {'w_i': np.array(strategy_data['w_i']), 'v_j': {}}
             for group, weights in strategy_data['v_j'].items():
                 temp_weights['v_j'][group] = np.array(weights)
             
             # (Simplificación: asumimos CR=0, ya que no tenemos la matriz de juicio)
-            # En una v3.0, el JSON debería guardar la matriz de juicio.
             strategy_name = f"Importada - {data['project_name']}"
             strategy_id = self.db.save_strategy(strategy_name, temp_weights, 0.0)
 
@@ -1018,10 +1020,8 @@ class MainApplication(btk.Window):
     def on_load_demo_data(self):
         """(NUEVO v2.8) Carga un set de datos demo en la DB."""
         self.set_status("Cargando set de proyectos demo en segundo plano...")
-        # Deshabilitar botones para evitar clics duplicados
         self.btn_run_mow.config(state="disabled")
         
-        # Ejecutar la carga de datos en un hilo para no congelar la GUI
         threading.Thread(target=self.run_demo_data_thread, daemon=True).start()
         self.after(100, self.check_analysis_queue)
 
@@ -1038,7 +1038,6 @@ class MainApplication(btk.Window):
             
             strategy_to_save = IAGenerator.generate_ahp_strategy(strategy_dims, strategy_states)
             
-            # Guardar Estrategia en DB (Usa 'upsert' de save_strategy)
             strategy_id = self.db.save_strategy("Estrategia Demo (Riesgo)", strategy_to_save, strategy_to_save['cr_dims'])
 
             # 2. Crear Proyectos Demo
@@ -1051,17 +1050,46 @@ class MainApplication(btk.Window):
             for name, profile in project_profiles.items():
                 project_id = self.db.save_project(name, strategy_id)
                 
-                # Generar y guardar t0
                 scores_t0 = IAGenerator.get_scores_matrix(profile)
                 self.db.save_reality(project_id, 't0', scores_t0)
                 
-                # Generar y guardar t1
                 scores_t1 = IAGenerator.get_scores_matrix("Mejora Moderada", base_scores=scores_t0)
                 self.db.save_reality(project_id, 't1', scores_t1)
                 
             self.analysis_queue.put({"type": "demo_success"})
         except Exception as e:
             self.analysis_queue.put({"type": "demo_error", "data": str(e)})
+
+    def on_clone_project(self):
+        """(NUEVO v2.9) Clona el proyecto seleccionado en la pestaña M9D."""
+        try:
+            pid_str = self.cb_project_select.get()
+            if not pid_str:
+                raise ValueError("No hay ningún proyecto seleccionado para clonar.")
+            
+            original_pid = int(pid_str.split(":")[0])
+            original_model = self.portfolio.get(original_pid)
+            if not original_model:
+                raise ValueError("No se encontró el modelo original en el portafolio.")
+            
+            new_name = simpledialog.askstring("Clonar Proyecto", 
+                                              f"Nombre para el clon de:\n'{original_model.project_name}'", 
+                                              parent=self)
+            if not new_name: return
+            
+            # 1. Guardar el nuevo proyecto con la misma estrategia
+            new_pid = self.db.save_project(new_name, original_model.strategy_weights['id'])
+            
+            # 2. Copiar todas las realidades (t0, t1, etc.)
+            for moment, scores in original_model.scores.items():
+                self.db.save_reality(new_pid, moment, scores)
+                
+            self.set_status(f"Proyecto '{original_model.project_name}' clonado a '{new_name}' (ID: {new_pid}).")
+            self.load_portfolio_from_db() # Refrescar todo
+            
+        except Exception as e:
+            messagebox.showerror("Error al Clonar", str(e))
+            self.set_status(f"Error al clonar: {e}")
             
     def on_import_reality_csv(self):
         """Importa una matriz 9x9 desde un CSV para el proyecto seleccionado."""
