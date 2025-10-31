@@ -1542,7 +1542,7 @@ class MainApplication(btk.Window):
             
             # 2. Mapa de Calor (solo del baseline t0)
             fig2, ax2 = plt.subplots(figsize=(6, 5))
-            sns.heatmap(pbt_a, annot=True, fmt=".2f", cmap='RdYlGn', center=0, vmin=-3, vmax=3,
+            sns.heatmap(pbt_a, annot=True, fmt=".2f", cmap='RdYLGn', center=0, vmin=-3, vmax=3,
                         xticklabels=VME_LABELS, yticklabels=D_LABELS, ax=ax2)
             ax2.set_title(f"Mapa de Calor (Baseline 'A') - {project_name}")
             fig2.tight_layout()
@@ -1655,12 +1655,15 @@ if __name__ == "__main__":
 
     # --- Inicializar DB y App ---
     try:
-        db_manager = DatabaseManager(USE_DB_TYPE, DB_CONFIG[USE_DB_TYPE])
+        # Cargar configuración de DB desde el .ini
+        db_conn_string = DB_CONFIG[USE_DB_TYPE]
+        db_manager = DatabaseManager(db_type=USE_DB_TYPE, config={f"{USE_DB_TYPE}_conn_string": db_conn_string})
+        
         app = MainApplication(db_manager)
         app.protocol("WM_DELETE_WINDOW", app.on_closing)
         app.mainloop()
     except Exception as e:
         messagebox.showerror("Error Crítico de Inicialización", 
                              f"No se pudo iniciar la aplicación.\n"
-                             f"Verifique su configuración de DB (USE_DB_TYPE) o las dependencias.\n\n"
+                             f"Verifique su configuración de 'm9d.ini' (USE_DB_TYPE) o las dependencias.\n\n"
                              f"Error: {e}")
