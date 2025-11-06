@@ -1,0 +1,12 @@
+ttkbootstrap
+numpy
+pandas
+scikit-learn
+matplotlib
+seaborn
+sqlalchemy
+reportlab
+requests
+networkx
+google-generativeai
+PyMySQL
