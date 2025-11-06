@@ -1,4 +1,4 @@
-# M9D es un sistema de análisis de portafolio y proyectos orientados a temas sociales, es de código abierto, M9D convierte el juicio experto en estrategia matemática y acción bajo ML.
+# M9D (Metodología de 9 Dimensiones): Un Marco Unificado para la resolución de proyectos y Resolución (A-T-Q) para el Análisis de Sistemas Complejos
 
 <p align="center">
     <a href="https://www.python.org/downloads/release/python-31019" target="_blank">
@@ -16,131 +16,124 @@
     <a href="https://ollama.com/search">
         <img alt="Ollama" src="https://img.shields.io/badge/IA-Ollama-white?logo=ollama">
     </a>
-</p>
+
 
 ---
 
-> "La gestión de proyectos moderna es un caos de intuición y subjetividad arbitraria. Los equipos directivos carecen de herramientas para cuantificar su estrategia y medir el avance de forma consistente. **M9D** es un sistema para cambiar eso."
+### Resumen (Abstract)
 
-**M9D** es una plataforma de análisis de portafolio que traduce la complejidad del juicio experto en un modelo matemático riguroso, auditable y accionable.
+Este repositorio presenta la especificación formal y la implementación de software de la **Metodología de Obra (MoW)**. El MoW es un marco metodológico diseñado para el análisis de sistemas socio-técnicos complejos (proyectos, portafolios), que resuelve la brecha fundamental entre el análisis cualitativo subjetivo y el análisis cuantitativo ciego al contexto.
 
-Este no es solo un tablero de control. Es un "sistema operativo" para la toma de decisiones estratégicas que te permite:
+El marco se basa en un modelo central, el **M9D**, que estructura un sistema en 9 Dimensiones (Asuntos) y 9 Estados Temporales (Pasado/Presente/Futuro con valencia +/-/N), generando una matriz de 81 factores de realidad ($S_{ij}$).
 
-1.  **Cuantificar tu Estrategia:** Traduce el debate cualitativo (ej. "¿qué es más importante?") en un modelo matemático riguroso usando el **Proceso Analítico Jerárquico (AHP)**.
-2.  **Validar tu Lógica:** El modelo te avisa si tu propia estrategia es contradictoria (usando el Ratio de Consistencia AHP).
-3.  **Medir la Salud del Proyecto (M9D):** Mide la salud de un solo proyecto con un "termómetro" (el **Vector de Momentum Estratégico - VME**), dándote 3 índices (Herencia, Situacional, Prospectiva).
-4.  **Encontrar el "Incendio" (XAI):** Un "mapa de calor" te dice *dónde* está el problema (el factor PBT), en lugar de solo decirte *que* hay un problema.
-5.  **Gestionar el Portafolio (MoW):** Analiza $X$ proyectos a la vez usando un pipeline de Machine Learning Clásico para:
-    * **Filtrar:** ¿Estamos comparando "peras con manzanas"? (Similitud de Coseno).
-    * **Agrupar:** ¿Qué "familias" de proyectos tenemos? (K-Means Clustering).
-    * **Diagnosticar:** ¿Cuál es la "causa raíz" factorial ($S_{ij}$) que define el fracaso o éxito de una familia entera? (Random Forest).
-6.  **Analizar Cualitativamente:** Integra IA Generativa local (vía `Ollama`) para "conversar" con tus datos y comparar proyectos complejos en lenguaje natural.
+Presentamos el modelado matemático y computacional del M9D en tres niveles de resolución:
+1.  **`M9D-A (Analógico)`:** Un marco cualitativo fundacional, "resoluble a mano", para la deliberación estratégica estructurada.
+2.  **`M9D-T (Clásico/Temporal)`:** Un *pipeline* de ingeniería de producción (`MoW`) que utiliza el **Proceso Analítico Jerárquico (AHP)** para la cuantificación y validación de la estrategia (CR < 0.10) y **Machine Learning Clásico** (Similitud de Coseno, K-Means, Random Forest) para el análisis de portafolios ($M9D^X$).
+3.  **`M9D-Q (Topológico/Cuántico)`:** Un marco teórico fundamental que postula el sistema M9D como *quantum-like*. Se modela como un sistema multipartita en un espacio de Hilbert de $D_{\text{total}} = 9^9$ dimensiones ($\approx 3.87 \times 10^8$), necesario para modelar la contextualidad y la ambigüedad inherentes a la cognición humana.
+
+Este framework proporciona un pipeline coherente, falsable y auditable, ofreciendo un campo fértil para la investigación y tesis en gestión, ciencia de datos y ciencias cognitivas.
 
 ---
 
-## 🏛️ Filosofía: Conocimiento Libre
+## 1. El Problema de Investigación: GIGO y la Subjetividad Arbitraria
 
-Este proyecto se libera al mundo bajo la **Licencia MIT**.
+El análisis de sistemas complejos (ej. una política pública, un proyecto de software) fracasa cuando se basa en herramientas inadecuadas.
+* **Marcos Cualitativos (ej. SWOT, `M9D-A`):** Son herramientas de deliberación útiles pero metodológicamente débiles. Carecen de escalabilidad y auditabilidad, y son vulnerables al "sesgo del experto dominante". El resultado es cualitativo y subjetivo.
+* **Marcos Cuantitativos (ej. Valor Ganado):** Son rigurosos para medir el *progreso* (costo/tiempo), pero son "ciegos al contexto". No pueden modelar factores sistémicos cruciales como el riesgo político (`D9`), la confianza de la comunidad (`D4`) o la deuda técnica (`D3-T1`).
 
-Es una herramienta de conocimiento libre para la humanidad. Está diseñada para ayudar a ONGs, gobiernos, académicos, startups y cualquier organización a tomar mejores decisiones, gestionar la complejidad y resolver problemas sistémicos.
+El `MoW` fue diseñado para resolver el problema de **GIGO (Garbage In, Garbage Out)**: ¿Cómo podemos tomar el "caos" del juicio experto cualitativo y traducirlo en un modelo cuantitativo, riguroso y escalable?
 
-## 🚀 El "Stack" Tecnológico
+## 2. El Modelo Central: `M9D` (La Molécula)
+El `M9D` es la "molécula" o estructura de datos unificada de nuestro sistema.
 
-* **GUI:** Python `Tkinter` con `ttkbootstrap` para una interfaz moderna.
-* **Base de Datos:** Driver intercambiable para `SQLite` (local) y `MySQL` (servidor).
-* **Motor Matemático (AHP/VME):** `Numpy` y `Pandas`.
-* **Motor de Portafolio (M9D^X=MoW):** `Scikit-learn` (KMeans, RandomForest, PCA, CosineSimilarity).
-* **Motor de IA Cualitativa:** `Ollama` (conectado vía `requests`).
-* **E/S (Importar/Exportar):** `CSV` (para Realidad), `JSON` (para Proyectos), `PDF` (para Reportes).
-* **Producción:** `threading` y `queue` para una GUI que nunca se congela.
+* **Eje 1: 9 Dimensiones (D1-D9):** Los 9 subsistemas interdependientes del proyecto (Propósito, Procesos, Tecnología, Comunidad, Solución, Territorio, Academia, S. Privado, S. Público).
+* **Eje 2: 9 Estados Temporales (T1-T9):** El contexto temporal y de valencia (Pasado/Presente/Futuro) x (Negativo/Neutro/Positivo).
+* **Eje 3: La Realidad ($S_{ij}$):** Una matriz de 81 factores donde un experto puntúa la realidad de cada factor (ej. `D4-T5`: *Presente Negativo de la Comunidad*) en una escala de **-3 a +3**.
+* **Eje 4: La Estrategia ($W_{AHP}$):** Un vector de 18 pesos ($w_i, v_j$) que cuantifica la importancia relativa de cada eje.
 
-## ⚡ Quick Start (Puesta en Marcha)
+## 3. La Metodología de Tres Resoluciones (A, T, Q)
 
-Esta es una aplicación de escritorio.
+El `MoW` no es un solo modelo, sino una jerarquía de tres resoluciones que se construyen una sobre la otra.
 
-### Prerrequisitos
+### 3.1. `M9D-A` (Resolución Analógica)
+* **Propósito:** Interfaz Humana / Taller Cualitativo (Nivel Pregrado).
+* **Matemática:** Ninguna.
+* **Proceso:** Un equipo debate y llena la matriz de 81 factores con observaciones cualitativas ("post-its").
+* **Resultado:** Un plan de acción `5W2H` consensuado.
+* **Debilidad:** Subjetivo, no auditable, no escalable.
 
-1.  **Python 3.10+** instalado.
-2.  **Ollama** instalado y corriendo en segundo plano. (Ej. `ollama run llama3:8b`)
+### 3.2. `M9D-T` / `MoW` (Resolución Clásica/Temporal)
+* **Propósito:** Ingeniería de Producción / Gestión de Portafolios (Nivel Maestría).
+* **Matemática:** Álgebra Lineal, Estadística, ML Clásico (`Scikit-learn`).
+* **Proceso:** El pipeline de software `MoW` (nuestra app `v3.1`) que:
+    1.  **Filtra el GIGO (AHP):** Reemplaza la ponderación subjetiva con el **Proceso Analítico Jerárquico**. El sistema *calcula* la Estrategia ($W_{AHP}$) y **valida** la consistencia lógica del equipo (exigiendo un **CR < 0.10**).
+    2.  **Mide la Salud (VME):** Calcula el **Vector de Momentum Estratégico** ($VME = (I_H, I_S, I_P)$) como un promedio ponderado de doble nivel. Esto resuelve la "Paradoja de Teseo": el $VME$ mide la *evolución del estado* ($S_{ij}$) de un proyecto cuya *identidad* ($W_{AHP}$) permanece fija.
+    3.  **Analiza el Portafolio (MoW):** Ejecuta un pipeline de ML sobre $X$ proyectos (`M9D^X`):
+        * **Filtro:** `Similitud de Coseno` para agrupar solo "peras con peras" (proyectos con estrategias similares).
+        * **Agrupamiento:** `K-Means Clustering` sobre los VME para encontrar "familias" de proyectos (ej. Crisis, Estables).
+        * **Causa Raíz:** `Random Forest` para identificar los factores $S_{ij}$ (ej. `D4-T5`) que son la causa raíz sistémica de esos clústeres.
+* **Resultado:** Un dashboard de XAI (Mapas de Calor, Radares, Grafos de Red) para la toma de decisiones basada en datos.
 
-### Instalación
+### 3.3. `M9D-Q` (Resolución Topológica/Cuántica)
+* **Propósito:** Investigación Fundamental / Física Teórica (Nivel Doctorado).
+* **Matemática:** Mecánica Cuántica, Topología, HPC (`QuTiP`, `JAX`).
+* **Proceso:** Este marco postula que el `M9D-T` es solo una *aproximación colapsada* de la realidad. El sistema real es *quantum-like* (Busemeyer & Bruza, 2012).
+    * **Contextualidad:** El "efecto de orden" (medir D4-D9 vs. D9-D4) se modela como operadores que no conmutan ($[O_i, O_j] \neq 0$).
+    * **Superposición:** La "ambigüedad" del proyecto se modela como un estado en un espacio de Hilbert de $D_{\text{total}} = 9^9$ dimensiones.
+    * **Cirugía (El Bisturí ✂️):** La "cancelación" de factores (`+3` y `-3`) se reinterpreta, no como un promedio, sino como una "cirugía topológica" (Perelman) que anula singularidades homotópicas (ej. dos IOTs) para reducirlas a un **Punto Fijo** (Neutro), simplificando la forma del problema.
+* **Resultado:** Un marco teórico para simular la dinámica fundamental de la cognición y la toma de decisiones.
 
-1.  Clona este repositorio:
+## 4. Oportunidades de Investigación (Temas de Tesis)
+
+Este repositorio es una plataforma para la investigación. Invitamos a estudiantes e investigadores a validar, criticar y extender este modelo.
+
+**Para Tesis de Maestría (Gestión / Ciencia de Datos):**
+* **Validación Empírica:** Aplicar la app `MoW` (`M9D-T`) a un portafolio de proyectos real (ej. en una ONG, una alcaldía, o una empresa de software). ¿El análisis de Causa Raíz (RF) identificó problemas reales?
+* **Validación Predictiva:** Usar los datos históricos (proyectos A, B, C) para entrenar un modelo que *prediga* el $VME$ futuro (Momento D) de un proyecto.
+* **Extensión del Pipeline:** ¿Funciona mejor `XGBoost` que `Random Forest` para la Causa Raíz? ¿Es `DBSCAN` mejor que `K-Means` para el agrupamiento?
+* **Análisis de Sensibilidad:** ¿Qué tan sensible es el $VME$ a los cambios en los pesos AHP?
+
+**Para Tesis de Doctorado (Física / C. Cognitiva / HPC):**
+* **Simulación del `M9D-Q`:** Modelar un sistema M9D reducido (ej. 3x3) en `QuTiP`. Demostrar la no conmutatividad y la contextualidad.
+* **Análisis Topológico (TDA):** Usar Homología Persistente en la nube de puntos de un portafolio MoW. ¿Cuáles son las "formas" (números de Betti) de un portafolio "en crisis" vs. uno "estable"?
+* **Optimización VQE/QUBO:** Reformular un problema de decisión M9D como un Hamiltoniano de Ising y resolverlo en un simulador cuántico o hardware NISQ real.
+* **Estudio Cognitivo:** Diseñar un experimento humano que pruebe el "Efecto de Orden" (contextualidad) en la ponderación AHP de las 9 Dimensiones.
+
+## 5. Quick Start (Instalación de la App `M9D-T`)
+
+1.  **Instalar Prerrequisitos:** `Python 3.10+` y `git`.
+2.  **Instalar Dependencias (Terminal):**
     ```bash
-    git clone https://github.com/smartcitiescommunity/M9D.git
-    cd M9D
+    pip install ttkbootstrap numpy pandas scikit-learn matplotlib seaborn sqlalchemy reportlab requests networkx google-generativeai
     ```
-2.  (Recomendado) Crea un entorno virtual:
+3.  **Configurar (3 Archivos):**
+    * Crea una carpeta.
+    * Guarda `app_gui.py` (el script principal) en ella.
+    * Guarda `precarga_demo.py` (el script de demo) en ella.
+    * Crea y guarda `m9d.ini` en ella y **añade tu Google AI API Key**.
+4.  **Precargar Demo (Solo una vez):**
     ```bash
-    python -m venv venv
-    source venv/bin/activate  # (o .\venv\Scripts\activate en Windows)
+    python precarga_demo.py
     ```
-3.  Instala las dependencias (asegúrate de crear un archivo `requirements.txt` con el contenido de las `pip install...`):
+5.  **Ejecutar la App:**
     ```bash
-    pip install -r requirements.txt
+    python app_gui.py
     ```
+6.  Haz clic en `[ EJECUTAR ANÁLISIS MoW ]` y explora.
 
-### Ejecución
+## 6. Citación
 
-1.  Asegúrate de que Ollama esté corriendo en otra terminal.
-2.  Ejecuta la aplicación (asumiendo que la guardaste como `app.py`):
-    ```bash
-    python app.py
-    ```
-3.  ¡Listo! Sigue el flujo de trabajo:
-    * **Paso 1:** Ve a la Pestaña `(3) Estrategias (AHP)` -> "Crear Nueva Estrategia...".
-    * **Paso 2:** Llena los 45 sliders y guarda una estrategia válida (CR < 10%).
-    * **Paso 3:** Ve al `Panel de Control` -> "Crear Nuevo Proyecto...".
-    * **Paso 4:** Ve a la Pestaña `(2) Proyecto` -> "Importar Realidad (CSV)...".
-    * **Paso 5:** Repite 3 y 4 para varios proyectos.
-    * **Paso 6:** Ve al `Panel de Control` -> "EJECUTAR ANÁLISIS".
-    * **Paso 7:** Revisa los resultados en la Pestaña `(1) Portafolio`.
+Si utilizas este marco o aplicación en tu investigación, por favor cita nuestro trabajo:
 
----
+> Juan Fernando Villa Hernández, & Gemini (Google AI). (2024). *MoW (Master Of War): Un Marco Unificado de Múltiples Resoluciones (M9D A-T-Q) para el Análisis de Sistemas Complejos*. Repositorio de GitHub. [https://github.com/smartcitiescommunity/M9D/](https://github.com/smartcitiescommunity/M9D/)
 
-## 🧠 La Metodología (El "Cerebro")
-
-### Nivel 1: El Proyecto (M9D)
-El **M9D** es el modelo para un solo proyecto. Se basa en una matriz de 9 Dimensiones (D1-D9) y 9 Estados Temporales (T1-T9), generando 81 factores de análisis ($S_{ij}$).
-
-Su resultado es el **Vector de Momentum Estratégico (VME)**, que calcula 3 índices:
-* **Herencia (IH):** El balance de tu pasado (éxitos vs. fracasos).
-* **Situacional (IS):** El balance de tu presente (fortalezas vs. debilidades).
-* **Prospectiva (IP):** El balance de tu futuro (visión vs. riesgos).
-
-El **Análisis A-B-C** te permite medir este VME en el Momento A (Baseline) y en el Momento B (Avance) para calcular el delta ($\Delta VME$) y ver si tu trabajo está dando frutos reales.
-
-### Nivel 2: El Portafolio (MoW / M9D^X)
-El **MoW** es el pipeline de Machine Learning que analiza $X$ proyectos M9D a la vez.
-
-1.  **Filtro de Correlación (Similitud de Coseno):** Compara los *Vectores de Estrategia* (los 18 pesos AHP) de tus proyectos contra una "Estrategia Golden". Esto responde: "¿Estamos comparando peras con manzanas?".
-2.  **Agrupamiento (K-Means Clustering):** Toma todos los proyectos *comparables* y los agrupa en "familias" basándose en sus resultados VME. Esto responde: "¿Qué tipos de proyectos tenemos? (ej. 'Crisis', 'Estables', 'Oportunidades')".
-3.  **Análisis de Causa Raíz (Random Forest):** Analiza las 81 puntuaciones $S_{ij}$ de todos los proyectos en un clúster para encontrar los factores comunes. Esto responde: "¿*Por qué* la familia 'Crisis' está en crisis? (ej. "Porque el 90% de ellos tiene una puntuación < -2 en [D4: Comunidad, T5: Presente Negativo]")."
-
-## 🤝 Cómo Contribuir
-
-¡Este proyecto está vivo! Eres bienvenido a contribuir.
-
-* **Desarrolladores:** Ayuden a mejorar la GUI, optimizar las consultas a la DB, o implementar nuevos módulos de ML.
-* **Analistas y Gerentes de Proyecto:** Usen la herramienta y reporten *bugs* o sugieran nuevas características. ¿Qué echan en falta en su día a día?
-* **Académicos y Científicos:** Tomen el modelo (es 100% falsable) y valídenlo. Publiquen *papers* criticándolo, mejorándolo o aplicándolo a casos de estudio reales.
-* **Traductores:** Ayuden a traducir la interfaz y la documentación a otros idiomas.
-
-## ❤️ Sobre los Autores
+## 7. Sobre los Autores
 
 Este proyecto nació de una colaboración sinérgica entre **Visión Humana** y **Aceleración de IA**.
 
-* **Juan Fernando Villa Hernández:** El Visionario y Gestor del Proyecto. Aportó la idea original creada en 2014 el 8 de abril en medio del foro urbano mundial bajo la frase "Estamos con sobrediagnostico y discursos necesitamos pasar a la acción y una herramiente que lo habilite", Así nace M9D la intención filosófica (inspirada en Tesla y Perelman), las preguntas críticas y la dirección estratégica que guió todo el desarrollo.
-* **Gemini (IA de Google):** El Socio Técnico. Actuó como facilitador, arquitecto de software y motor conceptual, traduciendo la visión en rigor matemático (AHP, ML), código de producción (Python, Tkinter) y estructura metodológica.
+* **[Juan Fernando Villa]:** El **Arquitecto Conceptual y Visionario**. Aportó la idea original, la intención filosófica (Tesla, Perelman), las preguntas críticas y las intuiciones (Modelado dimensional, Paradoja de Teseo, Bisturí de Perelman, Punto Fijo) que conectaron todo.
+* **Gemini (IA de Google):** El **Socio Técnico y Matemático Aplicado**. Actuó como facilitador, arquitecto de software y motor conceptual, traduciendo la visión en rigor matemático (AHP, VME, ML) y código de producción (Python, Tkinter, SQL).
 
-## 📜 Licencia
+## 8. Licencia
 
 Este proyecto se distribuye bajo la **Creative Commons Zero v1.0 Universal**.
-
----
-
-# 9D
-M9D está inspirada en el analisis sistemico que ofrece [Constelación](https://github.com/smartcitiescommunity/Constelation), el cual es fundamental en el analisis y la toma de decisiones. 
-
-M9D es un [Modelo, MEtodo y Metodología] dependiendo de como sea usado (M9D^X=MoW)
-Un sistema de análisis de portafolio de proyectos orientados a temas sociales, de código abierto, que convierte el juicio experto en estrategia matemática y acción de Aprendizaje Maquina.
