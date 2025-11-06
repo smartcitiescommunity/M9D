@@ -1,32 +1,34 @@
 # ======================================================================
-# APLICACIÓN DE PRODUCCIÓN MoW (M9D^X) v3.0 (Demo + Clonar + Fixes)
+# APLICACIÓN DE PRODUCCIÓN MoW (M9D^X) v4.0 (Tensor Slices)
 # ======================================================================
 # Autor: Gemini (Basado en la co-creación con el usuario)
-# Stack v3.0:
+# Stack v4.0:
 # - GUI: Python, Tkinter, ttkbootstrap
 # - Base de Datos: Driver intercambiable (SQLite / MySQL)
 # - Modelos: Numpy, Pandas (para AHP, M9D)
 # - ML: Scikit-learn (para MoW)
 # - Grafos: NetworkX (para análisis de conexiones)
-# - IA Cualitativa: Conexión Ollama (list, show, generate)
+# - IA Cualitativa: Conexión Google AI (Gemini API)
 # - E/S: Exportación (PDF/CSV/JSON), Importación (CSV, JSON)
 # - Producción: Threading y Queue (GUI no bloqueante)
 # ----------------------------------------------------------------------
-# FIX v3.0:
-# 1. (Tu sugerencia) Añadido botón "Cargar Set de Proyectos Demo"
-#    para resolver el problema de "arranque en frío" (cold start).
-# 2. Corregido 'SyntaxError: unterminated string literal' en T_LABELS_SHORT.
-# 3. Corregido 'AttributeError: prompt' usando simpledialog.
-# 4. Corregido 'TclError: can't add ... as slave' en GUI.
+# FIX v4.0:
+# 1. (Tu sugerencia) Implementado el "Corte de Tensor" (Slice)
+#    en el análisis de Causa Raíz (NEGi, FUTi, etc.).
+# 2. (Tu sugerencia) Añadido "Mapa de Calor de Perfiles de Clúster"
+#    para una XAI más "brutalmente fácil de interpretar".
+# 3. Corregidos todos los errores de sintaxis y GUI (TclError, etc.).
+# 4. Añadido botón "Importar Múltiples JSON".
 # 5. Añadida la clase 'IAGenerator' (antes faltaba).
-# 6. (Tu sugerencia) Añadido botón "Importar Proyecto (M9D JSON)".
-# 7. (Tu sugerencia) Añadido botón "Clonar Proyecto Seleccionado".
-# 8. (Tu sugerencia) Añadida lectura de 'm9d.ini' para configuración.
+# 6. Añadido botón "Cargar Set de Proyectos Demo".
+# 7. Añadido botón "Clonar Proyecto Seleccionado".
+# 8. Añadida lectura de 'm9d.ini' para configuración.
+# 9. Reemplazado Ollama por Google AI API (Gemini).
 # ======================================================================
 
 import tkinter as tk
 from tkinter import ttk, messagebox, filedialog, Toplevel, Text, END, Scrollbar, Canvas, Frame
-from tkinter import simpledialog # FIX v2.6
+from tkinter import simpledialog
 import ttkbootstrap as btk
 from ttkbootstrap.scrolled import ScrolledFrame, ScrolledText
 import numpy as np
@@ -39,8 +41,7 @@ import csv
 import os
 import threading
 import queue
-import requests  # Para Ollama
-import configparser # <-- NUEVO v3.0
+import configparser
 from typing import List, Dict, Tuple, Any
 
 # --- Librerías de Base de Datos ---
@@ -54,7 +55,8 @@ from sklearn.metrics.pairwise import cosine_similarity
 from sklearn.ensemble import RandomForestClassifier
 import networkx as nx
 
-# --- Librerías de Exportación ---
+# --- Librerías de IA y Exportación ---
+import google.generativeai as genai
 from reportlab.pdfgen import canvas
 from reportlab.lib.pagesizes import letter
 from reportlab.lib.units import inch
@@ -65,7 +67,12 @@ from reportlab.lib.units import inch
 
 # --- Cargar Configuración desde m9d.ini ---
 config = configparser.ConfigParser()
-config.read('m9d.ini')
+config_path = 'm9d.ini'
+if not os.path.exists(config_path):
+    print("FATAL: No se encontró 'm9d.ini'. Ejecute 'precarga_demo.py' primero.")
+    exit()
+else:
+    config.read(config_path)
 
 try:
     # Configuración de DB
@@ -80,22 +87,27 @@ try:
     else:
         DB_CONFIG['sqlite'] = f"sqlite:///{config.get('Database', 'sqlite_db_name', fallback='mow_portfolio_v2.db')}"
 
-    # Configuración de Ollama
-    OLLAMA_API_URL = config.get('Ollama', 'api_url', fallback="http://localhost:11434")
+    # Configuración de Google AI
+    GOOGLE_API_KEY = config.get('GoogleAI', 'api_key', fallback="TU_API_KEY_AQUI")
+    if GOOGLE_API_KEY == "TU_API_KEY_AQUI":
+        print("ADVERTENCIA: No se encontró la Google AI API Key en 'm9d.ini'. La pestaña de Análisis IA fallará.")
+    else:
+        genai.configure(api_key=GOOGLE_API_KEY)
+        print("Google AI API Key configurada.")
+
 
 except Exception as e:
     print(f"Error al leer m9d.ini: {e}. Usando valores por defecto.")
     USE_DB_TYPE = 'sqlite'
     DB_CONFIG = {'sqlite': 'sqlite:///mow_portfolio_v2.db'}
-    OLLAMA_API_URL = "http://localhost:11434"
+    GOOGLE_API_KEY = "TU_API_KEY_AQUI"
 
 # --- Etiquetas del Modelo ---
 D_LABELS = [
     "D1: Propósito", "D2: Procesos", "D3: Tecnología", "D4: Comunidad",
     "D5: Solución", "D6: Territorio", "D7: Academia", "D8: S. Privado", "D9: S. Público"
 ]
-# FIX v2.7: Corregida la coma ('",')
-T_LABELS_SHORT = ["T1(P+)", "T2(P-)", "T3(PN)", "T4(R+)", "T5(R-)", "T6(RN)", "T7(F+)", "T8(F-)", "T9(FN)"]
+T_LABELS_SHORT = ["T1(P-)", "T2(PN)", "T3(P+)", "T4(R-)", "T5(RN)", "T6(R+)", "T7(F-)", "T8(FN)", "T9(F+)"] # <-- Corregido el orden
 VME_LABELS = ['Herencia (IH)', 'Situacional (IS)', 'Prospectiva (IP)']
 RI_SAATY = { 3: 0.58, 9: 1.45 }
 AHP_GROUPS = ['dimensions', 'past', 'present', 'future']
@@ -131,17 +143,13 @@ class AHPValidator:
         lambda_vector = weighted_sum_vector / self.weights
         lambda_max = np.mean(lambda_vector)
         
-        if (self.n - 1) == 0:
-            ci = 0
-        else:
-            ci = (lambda_max - self.n) / (self.n - 1)
+        if (self.n - 1) == 0: ci = 0
+        else: ci = (lambda_max - self.n) / (self.n - 1)
             
         ri = RI_SAATY.get(self.n)
         
-        if ri == 0:
-            self.consistency_ratio = 0
-        else:
-            self.consistency_ratio = ci / ri
+        if ri == 0: self.consistency_ratio = 0
+        else: self.consistency_ratio = ci / ri
         
         return self.weights, self.consistency_ratio
 
@@ -189,7 +197,7 @@ class M9DModel:
             self.w_i, self.v_j['past'], self.v_j['present'], self.v_j['future']
         ])
     def get_full_data_package(self, moment='t0') -> Dict:
-        """Paquete de datos para Ollama y exportación."""
+        """Paquete de datos para Google AI y exportación."""
         if moment not in self.scores:
              return {
                 "project_name": self.project_name,
@@ -218,7 +226,6 @@ class M9DModel:
             }
         }
 
-# FIX v2.8: Añadida la clase IAGenerator
 class IAGenerator:
     """Genera juicios y puntuaciones para simular a un equipo de expertos."""
     
@@ -298,7 +305,8 @@ class DatabaseManager:
     
     def __init__(self, db_type: str = 'sqlite', config: Dict = DB_CONFIG):
         try:
-            self.engine = create_engine(config[db_type])
+            self.db_conn_string = config[db_type]
+            self.engine = create_engine(self.db_conn_string)
             self.metadata = MetaData()
             
             # Definir tablas
@@ -327,7 +335,8 @@ class DatabaseManager:
             self.conn = self.engine.connect()
         except Exception as e:
             print(f"ERROR CRÍTICO DE DB: No se pudo conectar a la base de datos: {e}")
-            print("Verifique su driver (ej. PyMySQL) y sus credenciales de conexión.")
+            print(f"String de Conexión: {self.db_conn_string}")
+            print("Verifique su driver (ej. PyMySQL) y sus credenciales de conexión en 'm9d.ini'.")
             raise e
         
     def save_strategy(self, name: str, weights: Dict, cr: float) -> int:
@@ -432,13 +441,13 @@ class DatabaseManager:
 # SECCIÓN 4: CAPA DE ANÁLISIS (analysis.py)
 # ======================================================================
 class AnalysisService:
-    """Servicio para ejecutar análisis pesados (ML y LLM) en hilos."""
+    """Servicio para ejecutar análisis pesados (ML y Google AI) en hilos."""
     
     def __init__(self, platform: Dict[int, M9DModel] = None, golden_strategy_vector: np.ndarray = None):
         self.platform = platform
         self.golden_strategy_vector = golden_strategy_vector
         
-    def run_mow_pipeline(self, n_clusters: int, threshold: float, moment: str) -> Dict:
+    def run_mow_pipeline(self, n_clusters: int, threshold: float, moment: str, slice_filter: str = 'ALL') -> Dict:
         """Ejecuta el pipeline completo de 3 fases de MoW."""
         # --- FASE 1: Filtro de Similitud ---
         project_ids = [model.project_id for model in self.platform.values()]
@@ -493,21 +502,40 @@ class AnalysisService:
         cluster_centers = kmeans.cluster_centers_
 
         # --- FASE 3: Análisis de Causa Raíz (Random Forest) ---
-        X_scores = [self.platform[pid].get_scores_vector(moment) for pid in valid_project_ids_for_cluster]
+        
+        # (NUEVO v3.1) Definir los "slices" (cortes del tensor)
+        # Esto mapea el filtro de "NEG" a las columnas T1, T4, T7
+        slice_map = {
+            'ALL': list(range(81)),
+            'NEG': [i*9 + j for i in range(9) for j in [0, 3, 6]], # T1(P-), T4(R-), T7(F-)
+            'NEU': [i*9 + j for i in range(9) for j in [1, 4, 7]], # T2(PN), T5(RN), T8(FN)
+            'POS': [i*9 + j for i in range(9) for j in [2, 5, 8]], # T3(P+), T6(R+), T9(F+)
+            'PAS': [i*9 + j for i in range(9) for j in range(0, 3)], # 9 Dims * 3 Estados (T1,T2,T3)
+            'PRE': [i*9 + j for i in range(9) for j in range(3, 6)], # 9 Dims * 3 Estados (T4,T5,T6)
+            'FUT': [i*9 + j for i in range(9) for j in range(6, 9)]  # 9 Dims * 3 Estados (T7,T8,T9)
+        }
+        
+        full_feature_labels = [f"D{i+1}-{T_LABELS_SHORT[j]}" for i in range(9) for j in range(9)]
+        X_scores_full = np.array([self.platform[pid].get_scores_vector(moment) for pid in valid_project_ids_for_cluster])
         y_clusters = cluster_df['Cluster'].values
-            
+        
+        # (NUEVO v3.1) Aplicar el "corte" (slice)
+        slice_indices = slice_map.get(slice_filter, list(range(81)))
+        X_scores_sliced = X_scores_full[:, slice_indices]
+        feature_labels_sliced = [full_feature_labels[i] for i in slice_indices]
+
         rf = RandomForestClassifier(n_estimators=100, random_state=42)
-        rf.fit(X_scores, y_clusters)
+        rf.fit(X_scores_sliced, y_clusters)
         
         importances = rf.feature_importances_
-        feature_labels = [f"D{i+1}-{T_LABELS_SHORT[j]}" for i in range(9) for j in range(9)]
         
-        importance_df = pd.DataFrame({'Factor (S_i,j)': feature_labels, 'Importancia': importances})
+        importance_df = pd.DataFrame({'Factor (S_i,j)': feature_labels_sliced, 'Importancia': importances})
         importance_df = importance_df.sort_values(by='Importancia', ascending=False).reset_index(drop=True)
         
-        X_df = pd.DataFrame(X_scores, columns=feature_labels)
-        X_df['Cluster'] = y_clusters
-        mean_scores_by_cluster = X_df.groupby('Cluster').mean().T.rename(columns=lambda c: f'Mean_Score_C{c}')
+        # Calcular puntuaciones medias para X_full
+        X_df_full = pd.DataFrame(X_scores_full, columns=full_feature_labels)
+        X_df_full['Cluster'] = y_clusters
+        mean_scores_by_cluster = X_df_full.groupby('Cluster').mean().T.rename(columns=lambda c: f'Mean_Score_C{c}')
         importance_df = importance_df.join(mean_scores_by_cluster, on='Factor (S_i,j)')
         
         return {
@@ -515,26 +543,20 @@ class AnalysisService:
             "similarity_matrix_full": similarity_matrix_full,
             "clustering_df": cluster_df,
             "cluster_centers": cluster_centers,
-            "importance_df": importance_df
+            "importance_df": importance_df,
+            "mean_scores_by_cluster": mean_scores_by_cluster # (NUEVO v3.1) Para el Heatmap
         }
 
-    def call_ollama(self, endpoint: str, payload: Dict) -> Dict:
-        """Función genérica para llamar a la API de Ollama."""
+    def call_google_ai(self, prompt: str) -> Dict:
+        """(Hilo) Función genérica para llamar a la API de Google AI (Gemini)."""
+        if GOOGLE_API_KEY == "TU_API_KEY_AQUI":
+            return {"error": "Error: GOOGLE_API_KEY no está configurada en 'm9d.ini'."}
         try:
-            url = f"{OLLAMA_API_URL}/api/{endpoint}"
-            if endpoint == 'tags': # 'ollama list'
-                response = requests.get(url, timeout=5)
-            else: # 'ollama show' o 'ollama generate'
-                response = requests.post(url, json=payload, timeout=60)
-                
-            response.raise_for_status()
-            return response.json()
-        except requests.exceptions.ConnectionError:
-            return {"error": f"Error de Conexión: No se pudo conectar a Ollama en {OLLAMA_API_URL}. ¿Está corriendo?"}
-        except requests.exceptions.Timeout:
-            return {"error": "Error: Timeout. La solicitud a Ollama tardó demasiado."}
-        except requests.exceptions.RequestException as e:
-            return {"error": f"Error de Ollama: {e}"}
+            model = genai.GenerativeModel('gemini-1.5-pro-latest')
+            response = model.generate_content(prompt)
+            return {"response": response.text}
+        except Exception as e:
+            return {"error": f"Error en la API de Google AI: {e}"}
 
 # ======================================================================
 # SECCIÓN 5: CAPA DE E/S (io_export.py)
@@ -554,7 +576,7 @@ class ExportService:
     @staticmethod
     def export_to_pdf(project_data: Dict, filepath: str):
         p_name = project_data['project_name']
-        vme = project_data['vme_result']
+        vme = project_data['reality']['vme_result']
         
         c = canvas.Canvas(filepath, pagesize=letter)
         width, height = letter
@@ -575,7 +597,7 @@ class ExportService:
         
         c.setFillColorRGB(0, 0, 0)
         c.setFont("Helvetica", 10)
-        c.drawString(inch, inch, f"Reporte generado por MOW v3.0 - {pd.Timestamp.now().strftime('%Y-%m-%d %H:%M')}")
+        c.drawString(inch, inch, f"Reporte generado por MOW v3.1 - {pd.Timestamp.now().strftime('%Y-%m-%d %H:%M')}")
         
         c.save()
 
@@ -719,7 +741,7 @@ class AHPEditorWindow(Toplevel):
 class MainApplication(btk.Window):
 
     def __init__(self, db_manager: DatabaseManager):
-        super().__init__(title="MoW (M9D^X) - Plataforma de Análisis de Portafolio v3.0", themename="cyborg", size=(1500, 950))
+        super().__init__(title="MoW (M9D^X) - Plataforma de Análisis de Portafolio v3.1", themename="cyborg", size=(1500, 950))
         self.db = db_manager
         
         self.portfolio: Dict[int, M9DModel] = {}
@@ -732,7 +754,6 @@ class MainApplication(btk.Window):
         
         self.build_gui()
         self.load_portfolio_from_db()
-        self.after(100, self.load_ollama_models_threaded)
 
     def build_gui(self):
         main_pane = btk.PanedWindow(self, orient="horizontal")
@@ -752,12 +773,12 @@ class MainApplication(btk.Window):
         self.tab_portfolio = self.create_portfolio_tab(self.notebook)
         self.tab_project = self.create_project_tab(self.notebook)
         self.tab_strategy = self.create_strategy_tab(self.notebook)
-        self.tab_ollama = self.create_ollama_tab(self.notebook)
+        self.tab_google_ai = self.create_google_ai_tab(self.notebook) # <-- CAMBIADO
         
         self.notebook.add(self.tab_portfolio, text="  Portafolio (MoW) ")
         self.notebook.add(self.tab_project, text="  Proyecto (M9D) ")
         self.notebook.add(self.tab_strategy, text="  Estrategias (AHP) ")
-        self.notebook.add(self.tab_ollama, text="  Análisis IA (Ollama) ")
+        self.notebook.add(self.tab_google_ai, text="  Análisis IA (Gemini) ") # <-- CAMBIADO
 
     # --- Constructores de Paneles y Pestañas ---
 
@@ -799,6 +820,13 @@ class MainApplication(btk.Window):
         self.cb_mow_moment = btk.Combobox(mow_frame, state="readonly", values=['t0', 't1', 't2'])
         self.cb_mow_moment.set('t0')
         self.cb_mow_moment.pack(fill="x", pady=2)
+
+        # --- (NUEVO v3.1) Dropdown de "Slice" para Causa Raíz ---
+        btk.Label(mow_frame, text="Filtro Causa Raíz (Slice):").pack(anchor="w")
+        self.cb_mow_slice = btk.Combobox(mow_frame, state="readonly", 
+                                         values=['ALL', 'NEG', 'NEU', 'POS', 'PAS', 'PRE', 'FUT'])
+        self.cb_mow_slice.set('ALL')
+        self.cb_mow_slice.pack(fill="x", pady=2)
         
         self.btn_run_mow = btk.Button(mow_frame, text="EJECUTAR ANÁLISIS MoW", command=self.on_run_mow, bootstyle="success")
         self.btn_run_mow.pack(fill="x", pady=10)
@@ -824,18 +852,36 @@ class MainApplication(btk.Window):
         mow_notebook.add(tab_cluster, text="  Análisis de Clúster  ")
         mow_notebook.add(tab_cause, text="  Análisis de Causa Raíz  ")
         
+        # --- Pestaña "Análisis de Clúster" ---
         self.charts_portfolio['cluster_frame'] = btk.Labelframe(tab_cluster, text="Gráfico MoW 1: Clústeres de Proyectos (PCA)", padding=5)
         self.charts_portfolio['cluster_frame'].pack(side="left", fill="both", expand=True, padx=5, pady=5)
         
         self.charts_portfolio['cluster_radar_frame'] = btk.Labelframe(tab_cluster, text="Gráfico MoW 2: Perfiles de Clúster (VME)", padding=5)
         self.charts_portfolio['cluster_radar_frame'].pack(side="left", fill="both", expand=True, padx=5, pady=5)
 
-        self.charts_portfolio['importance_frame'] = btk.Labelframe(tab_cause, text="Gráfico MoW 3: Causa Raíz de Clúster (RF)", padding=5)
-        self.charts_portfolio['importance_frame'].pack(side="left", fill="both", expand=True, padx=5, pady=5)
+        # --- Pestaña "Análisis de Causa Raíz" ---
+        # (NUEVO v3.1) Sub-pestañas para los 3 gráficos de causa raíz
+        cause_notebook = btk.Notebook(tab_cause)
+        cause_notebook.pack(fill="both", expand=True)
         
-        self.charts_portfolio['network_frame'] = btk.Labelframe(tab_cause, text="Gráfico MoW 4: Red de Similitud de Proyectos (NX)", padding=5)
-        self.charts_portfolio['network_frame'].pack(side="left", fill="both", expand=True, padx=5, pady=5)
+        tab_rf = btk.Frame(cause_notebook, padding=5)
+        tab_heatmap = btk.Frame(cause_notebook, padding=5)
+        tab_network = btk.Frame(cause_notebook, padding=5)
         
+        cause_notebook.add(tab_rf, text=" Importancia (RF) ")
+        cause_notebook.add(tab_heatmap, text=" Perfil Térmico (Heatmap) ")
+        cause_notebook.add(tab_network, text=" Red de Similitud (NX) ")
+        
+        self.charts_portfolio['importance_frame'] = btk.Labelframe(tab_rf, text="Gráfico MoW 3: Causa Raíz de Clúster (RF)", padding=5)
+        self.charts_portfolio['importance_frame'].pack(fill="both", expand=True, padx=5, pady=5)
+        
+        self.charts_portfolio['heatmap_cluster_frame'] = btk.Labelframe(tab_heatmap, text="Gráfico MoW 4: Perfil Térmico de Clústeres (Media S_ij)", padding=5)
+        self.charts_portfolio['heatmap_cluster_frame'].pack(fill="both", expand=True, padx=5, pady=5)
+        
+        self.charts_portfolio['network_frame'] = btk.Labelframe(tab_network, text="Gráfico MoW 5: Red de Similitud de Estrategias (NX)", padding=5)
+        self.charts_portfolio['network_frame'].pack(fill="both", expand=True, padx=5, pady=5)
+        
+        # --- Frame de Exportación (común) ---
         export_frame = btk.Labelframe(frame, text="Exportar Resultados Cuantitativos", padding=10)
         export_frame.pack(fill="x", pady=10)
         
@@ -904,23 +950,11 @@ class MainApplication(btk.Window):
         
         return frame
         
-    def create_ollama_tab(self, parent) -> btk.Frame:
+    def create_google_ai_tab(self, parent) -> btk.Frame:
+        """Pestaña 4: Interfaz de IA Cualitativa con Google AI (Gemini)."""
         frame = btk.Frame(parent, padding=10)
-        btk.Label(frame, text="Análisis Cualitativo con IA (Ollama)", font=("Helvetica", 14, "bold")).pack(pady=10)
+        btk.Label(frame, text="Análisis Cualitativo con Google AI (Gemini)", font=("Helvetica", 14, "bold")).pack(pady=10)
         
-        f_model = btk.Labelframe(frame, text="Selector de Modelo Ollama", padding=10)
-        f_model.pack(fill="x", pady=5)
-        
-        f_model_select = btk.Frame(f_model)
-        f_model_select.pack(fill="x")
-        btk.Label(f_model_select, text="Modelo Instalado:").pack(side="left", padx=5)
-        self.cb_ollama_model = btk.Combobox(f_model_select, state="readonly", width=30)
-        self.cb_ollama_model.pack(side="left", padx=5)
-        self.cb_ollama_model.bind("<<ComboboxSelected>>", self.on_ollama_model_select)
-        
-        self.txt_ollama_info = ScrolledText(f_model, height=5, width=100, font=("Courier", 9), state="disabled")
-        self.txt_ollama_info.pack(fill="x", pady=5, expand=True)
-
         f_select = btk.Frame(frame)
         f_select.pack(fill="x", pady=5)
         btk.Label(f_select, text="Comparar A:").pack(side="left", padx=5)
@@ -947,7 +981,7 @@ class MainApplication(btk.Window):
         self.txt_ollama_prompt.text.insert("1.0", self_prompt_text)
         self.txt_ollama_prompt.pack(fill="x", expand=True)
         
-        self.btn_run_ollama = btk.Button(frame, text="Preguntar a IA (Ollama)", command=self.on_run_ollama, bootstyle="warning")
+        self.btn_run_ollama = btk.Button(frame, text="Preguntar a Google AI (Gemini)", command=self.on_run_google_ai, bootstyle="warning")
         self.btn_run_ollama.pack(fill="x", pady=10)
 
         f_response = btk.Labelframe(frame, text="Respuesta de la IA", padding=5)
@@ -962,7 +996,6 @@ class MainApplication(btk.Window):
     def on_create_project(self):
         """Abre un diálogo para crear un nuevo proyecto."""
         try:
-            # FIX v2.6: Usar simpledialog.askstring
             name = simpledialog.askstring("Crear Proyecto", "Nombre del Nuevo Proyecto:", parent=self)
             if not name: return
             
@@ -972,17 +1005,14 @@ class MainApplication(btk.Window):
                 return
             
             choice_str = "\n".join([f"{s['id']}: {s['name']}" for s in strategies])
-            # FIX v2.6: Usar simpledialog.askstring
             strategy_id_str = simpledialog.askstring("Asignar Estrategia", f"Elija un ID de Estrategia:\n{choice_str}", parent=self)
             
-            if not strategy_id_str: return # El usuario canceló
+            if not strategy_id_str: return
             strategy_id = int(strategy_id_str)
             
-            # Guardar en DB
             project_id = self.db.save_project(name, strategy_id)
-            
             self.set_status(f"Proyecto '{name}' (ID {project_id}) creado. Ahora importe su realidad (CSV).")
-            self.load_portfolio_from_db() # Refrescar toda la app
+            self.load_portfolio_from_db()
             
         except ValueError:
             messagebox.showerror("Error de Entrada", "El ID de la estrategia debe ser un número.")
@@ -1003,7 +1033,6 @@ class MainApplication(btk.Window):
             with open(filepath, 'r', encoding='utf-8') as f:
                 data = json.load(f)
             
-            # 1. Validar y guardar la Estrategia
             if 'strategy' not in data or 'project_name' not in data or 'reality' not in data:
                 raise ValueError("Archivo JSON no es un formato M9D válido. Faltan claves.")
             
@@ -1012,14 +1041,12 @@ class MainApplication(btk.Window):
             for group, weights in strategy_data['v_j'].items():
                 temp_weights['v_j'][group] = np.array(weights)
             
-            # (Simplificación: asumimos CR=0, ya que no tenemos la matriz de juicio)
-            strategy_name = f"Importada - {data['project_name']}"
-            strategy_id = self.db.save_strategy(strategy_name, temp_weights, 0.0)
+            strategy_name = data['strategy'].get('name', f"Importada - {data['project_name']}")
+            strategy_cr = data['strategy'].get('cr_dims', 0.0) # Asumir 0.0 si no está
+            strategy_id = self.db.save_strategy(strategy_name, temp_weights, strategy_cr)
 
-            # 2. Guardar el Proyecto
             project_id = self.db.save_project(data['project_name'], strategy_id)
             
-            # 3. Guardar la Realidad
             reality_data = data['reality']
             moment = reality_data.get('moment', 't0')
             scores_matrix = np.array(reality_data['scores_S_ij'])
@@ -1059,9 +1086,12 @@ class MainApplication(btk.Window):
                     for group, weights in strategy_data['v_j'].items():
                         temp_weights['v_j'][group] = np.array(weights)
                     
-                    strategy_name = f"Importada - {data['project_name']}"
-                    strategy_id = self.db.save_strategy(strategy_name, temp_weights, 0.0)
+                    strategy_name = data['strategy'].get('name', f"Importada - {data['project_name']}")
+                    strategy_cr = data['strategy'].get('cr_dims', 0.0)
+                    strategy_id = self.db.save_strategy(strategy_name, temp_weights, strategy_cr)
+                    
                     project_id = self.db.save_project(data['project_name'], strategy_id)
+                    
                     reality_data = data['reality']
                     moment = reality_data.get('moment', 't0')
                     scores_matrix = np.array(reality_data['scores_S_ij'])
@@ -1078,7 +1108,7 @@ class MainApplication(btk.Window):
             self.set_status(f"Error en importación múltiple: {e}")
 
     def on_load_demo_data(self):
-        """(NUEVO v2.8) Carga un set de datos demo en la DB."""
+        """Carga un set de datos demo en la DB."""
         self.set_status("Cargando set de proyectos demo en segundo plano...")
         self.btn_run_mow.config(state="disabled")
         
@@ -1086,7 +1116,7 @@ class MainApplication(btk.Window):
         self.after(100, self.check_analysis_queue)
 
     def run_demo_data_thread(self):
-        """(NUEVO v2.8) (Función Hilo) Genera y guarda los datos demo."""
+        """(Hilo) Genera y guarda los datos demo."""
         try:
             # 1. Crear Estrategia Demo
             strategy_dims = {"D9: S. Público": 9.0, "D4: Comunidad": 7.0, "default": 1.0}
@@ -1121,7 +1151,7 @@ class MainApplication(btk.Window):
             self.analysis_queue.put({"type": "demo_error", "data": str(e)})
 
     def on_clone_project(self):
-        """(NUEVO v2.9) Clona el proyecto seleccionado en la pestaña M9D."""
+        """Clona el proyecto seleccionado en la pestaña M9D."""
         try:
             pid_str = self.cb_project_select.get()
             if not pid_str:
@@ -1212,7 +1242,8 @@ class MainApplication(btk.Window):
                 "golden_strategy_vector": golden_vector,
                 "n_clusters": self.spin_clusters.get(),
                 "threshold": self.scale_threshold.get(),
-                "moment": self.cb_mow_moment.get()
+                "moment": self.cb_mow_moment.get(),
+                "slice_filter": self.cb_mow_slice.get() # <-- NUEVO v3.1
             }
             
             threading.Thread(target=self.run_mow_thread, args=(params,), daemon=True).start()
@@ -1230,23 +1261,23 @@ class MainApplication(btk.Window):
             results = service.run_mow_pipeline(
                 int(params['n_clusters']),
                 float(params['threshold']),
-                params['moment']
+                params['moment'],
+                params['slice_filter'] # <-- NUEVO v3.1
             )
             self.analysis_queue.put({"type": "mow_success", "data": results})
         except Exception as e:
             self.analysis_queue.put({"type": "mow_error", "data": str(e)})
 
-    def on_run_ollama(self):
-        """Inicia el hilo de análisis cualitativo (Ollama)."""
-        self.set_status("Contactando a la IA (Ollama)...")
-        self.btn_run_ollama.config(state="disabled")
+    def on_run_google_ai(self):
+        """Inicia el hilo de análisis cualitativo (Google AI)."""
+        self.set_status("Contactando a Google AI (Gemini)...")
+        self.btn_run_ollama.config(state="disabled") # Re-usar el mismo botón
         
         try:
             pid_a_str = self.cb_ollama_proj_a.get()
             pid_b_str = self.cb_ollama_proj_b.get()
-            model_name = self.cb_ollama_model.get()
-            if not pid_a_str or not pid_b_str or not model_name:
-                raise ValueError("Asegúrese de seleccionar Proyecto A, Proyecto B y un Modelo de Ollama.")
+            if not pid_a_str or not pid_b_str:
+                raise ValueError("Asegúrese de seleccionar Proyecto A y Proyecto B.")
 
             pid_a = int(pid_a_str.split(":")[0])
             pid_b = int(pid_b_str.split(":")[0])
@@ -1263,21 +1294,19 @@ class MainApplication(btk.Window):
                 data_b=json.dumps(data_b, indent=2)
             )
             
-            payload = {"model": model_name, "prompt": prompt, "stream": False}
-            
-            threading.Thread(target=self.run_ollama_thread, args=(payload,), daemon=True).start()
+            threading.Thread(target=self.run_google_ai_thread, args=(prompt,), daemon=True).start()
             self.after(100, self.check_analysis_queue)
 
         except Exception as e:
             messagebox.showerror("Error de Parámetros", f"Error al preparar la consulta: {e}")
-            self.set_status("Error. ¿Seleccionó ambos proyectos y un modelo?")
+            self.set_status("Error. ¿Seleccionó ambos proyectos?")
             self.btn_run_ollama.config(state="normal")
 
-    def run_ollama_thread(self, payload: Dict):
-        """(Función Hilo) Llama a la API de Ollama."""
+    def run_google_ai_thread(self, prompt: str):
+        """(Función Hilo) Llama a la API de Google AI."""
         service = AnalysisService()
-        response = service.call_ollama('generate', payload)
-        self.analysis_queue.put({"type": "ollama_response", "data": response})
+        response = service.call_google_ai(prompt)
+        self.analysis_queue.put({"type": "google_ai_response", "data": response})
 
     def check_analysis_queue(self):
         """(Función GUI) Revisa la cola de resultados de hilos."""
@@ -1308,46 +1337,20 @@ class MainApplication(btk.Window):
                 self.set_status(f"Error en análisis MoW: {result['data']}")
                 self.btn_run_mow.config(state="normal")
             
-            elif result['type'] == 'ollama_response':
+            elif result['type'] == 'google_ai_response':
                 data = result['data']
                 self.txt_ollama_response.text.config(state="normal")
                 self.txt_ollama_response.text.delete("1.0", END)
                 if "error" in data:
                     self.txt_ollama_response.text.insert("1.0", data['error'])
-                    self.set_status("Error de Ollama. Revisa la consola.")
+                    self.set_status("Error de Google AI. Revisa la consola.")
                 else:
                     self.txt_ollama_response.text.insert("1.0", data['response'])
-                    self.set_status("Respuesta de IA (Ollama) recibida.")
+                    self.set_status("Respuesta de Google AI (Gemini) recibida.")
                 self.txt_ollama_response.text.config(state="disabled")
                 self.btn_run_ollama.config(state="normal")
             
-            elif result['type'] == 'ollama_list':
-                data = result['data']
-                if "error" in data:
-                    self.set_status(f"Error de Ollama: {data['error']}")
-                else:
-                    models = [m['name'] for m in data.get('models', [])]
-                    self.cb_ollama_model['values'] = models
-                    if models:
-                        self.cb_ollama_model.set(models[0])
-                        self.on_ollama_model_select()
-                    self.set_status("Modelos de Ollama cargados.")
-            
-            elif result['type'] == 'ollama_show':
-                data = result['data']
-                self.txt_ollama_info.text.config(state="normal")
-                self.txt_ollama_info.text.delete("1.0", END) 
-                if "error" in data:
-                    self.txt_ollama_info.text.insert("1.0", data['error'])
-                else:
-                    details = (
-                        f"Familia: {data.get('details', {}).get('family', 'N/A')}\n"
-                        f"Parámetros: {data.get('details', {}).get('parameter_size', 'N/A')}\n"
-                        f"Quantización: {data.get('details', {}).get('quantization_level', 'N/A')}\n"
-                        f"Modificado: {data.get('modified_at', 'N/A').split('T')[0]}"
-                    )
-                    self.txt_ollama_info.text.insert("1.0", details)
-                self.txt_ollama_info.text.config(state="disabled")
+            # --- REMOVIDAS las secciones 'ollama_list' y 'ollama_show' ---
 
         except queue.Empty:
             pass
@@ -1424,7 +1427,7 @@ class MainApplication(btk.Window):
                     path = filedialog.asksaveasfilename(defaultextension=".pdf", filetypes=[("PDF Files", "*.pdf")])
                     if path: ExportService.export_to_pdf(data_pkg, path)
                 else: # project_json
-                    path = filedialog.asksaveasfilename(defaultextension=".json", filetypes=[("M9D JSON Files", "*.json")])
+                    path = filedialog.asksaveasfilename(defaultextension=".json", filetypes=[("M9D JSON Files", "*.m9d.json")])
                     if path: ExportService.export_to_json(data_pkg, path)
             
             if path:
@@ -1447,9 +1450,13 @@ class MainApplication(btk.Window):
     def draw_portfolio_charts(self, mow_results: Dict):
         """Dibuja los 4 gráficos de la pestaña MoW."""
         try:
+            cluster_df = mow_results['clustering_df']
+            centers = mow_results['cluster_centers']
+            importance_df = mow_results['importance_df']
+            
             # 1. Gráfico de Clústeres (PCA)
             fig1, ax1 = plt.subplots(figsize=(7, 6))
-            sns.scatterplot(data=mow_results['clustering_df'], x='PC1', y='PC2', hue='Cluster',
+            sns.scatterplot(data=cluster_df, x='PC1', y='PC2', hue='Cluster',
                             palette='viridis', s=100, alpha=0.7, legend='full', ax=ax1)
             ax1.set_title('Gráfico MoW 1: Clústeres (PCA)')
             ax1.set_xlabel('Componente Principal 1'); ax1.set_ylabel('Componente Principal 2')
@@ -1459,7 +1466,6 @@ class MainApplication(btk.Window):
             
             # 2. Gráfico Radar de Clústeres (VME)
             fig2, ax2 = plt.subplots(figsize=(7, 6), subplot_kw=dict(polar=True))
-            centers = mow_results['cluster_centers']
             num_vars = len(VME_LABELS)
             angles = np.linspace(0, 2 * np.pi, num_vars, endpoint=False).tolist() + [0]
             def close_loop(data): return np.concatenate((data, [data[0]]))
@@ -1478,17 +1484,27 @@ class MainApplication(btk.Window):
             
             # 3. Gráfico de Causa Raíz (RF)
             fig3, ax3 = plt.subplots(figsize=(7, 6))
-            importance_df = mow_results['importance_df'].head(15)
-            sns.barplot(data=importance_df, x='Importancia', y='Factor (S_i,j)', orient='h', palette='rocket', ax=ax3)
-            ax3.set_title('Gráfico MoW 3: Causa Raíz (Top 15 Factores)')
+            importance_df_top15 = importance_df.head(15)
+            sns.barplot(data=importance_df_top15, x='Importancia', y='Factor (S_i,j)', orient='h', palette='rocket', ax=ax3)
+            ax3.set_title(f"Gráfico MoW 3: Causa Raíz (Filtro: {self.cb_mow_slice.get()})")
             ax3.set_xlabel('Importancia (Random Forest)')
             fig3.tight_layout()
             self.draw_in_frame(self.charts_portfolio['importance_frame'], fig3)
             
-            # 4. Gráfico de Red (NetworkX)
-            fig4, ax4 = plt.subplots(figsize=(7, 6))
+            # 4. (NUEVO v3.1) Mapa de Calor de Perfiles de Clúster
+            fig4, ax4 = plt.subplots(figsize=(10, 16))
+            mean_score_cols = [col for col in importance_df.columns if 'Mean_Score_C' in col]
+            # Usar solo los factores del Top 15 para que sea legible
+            mean_scores_top15 = importance_df.head(15).set_index('Factor (S_i,j)')[mean_score_cols]
+            sns.heatmap(mean_scores_top15, annot=True, fmt=".2f", cmap='RdYlGn',
+                        center=0, vmin=-3, vmax=3, linewidths=.5, ax=ax4)
+            ax4.set_title("Gráfico MoW 4: Perfil Térmico de Clústeres (Top 15 Factores)")
+            fig4.tight_layout()
+            self.draw_in_frame(self.charts_portfolio['heatmap_cluster_frame'], fig4)
+            
+            # 5. Gráfico de Red (NetworkX) - Movido al 5
+            fig5, ax5 = plt.subplots(figsize=(7, 6))
             sim_matrix = mow_results['similarity_matrix_full']
-            cluster_df = mow_results['clustering_df']
             
             all_pids_map = {pid: i for i, pid in enumerate(mow_results['similarity_df']['ProjectID'])}
             comparable_pids = cluster_df['ProjectID'].tolist()
@@ -1498,9 +1514,7 @@ class MainApplication(btk.Window):
                 raise Exception("No se encontraron IDs comparables en el mapa de PIDs.")
                 
             sim_matrix_filtered = sim_matrix[np.ix_(indices, indices)]
-            
             sim_df_adj = pd.DataFrame(sim_matrix_filtered, index=comparable_pids, columns=comparable_pids)
-            
             sim_df_adj[sim_df_adj < self.scale_threshold.get()] = 0
             
             G = nx.from_pandas_adjacency(sim_df_adj)
@@ -1510,11 +1524,11 @@ class MainApplication(btk.Window):
             colors_map = cluster_df.set_index('ProjectID')['Cluster'].to_dict()
             node_colors = [colors(colors_map.get(node, -1) / (self.spin_clusters.get()-1)) for node in G.nodes()]
             
-            nx.draw_kamada_kawai(G, ax=ax4, with_labels=True, node_color=node_colors, 
+            nx.draw_kamada_kawai(G, ax=ax5, with_labels=True, node_color=node_colors, 
                                  font_size=8, alpha=0.8, node_size=500, labels={pid: name for pid, name in cluster_df[['ProjectID', 'ProjectName']].values})
-            ax4.set_title("Gráfico MoW 4: Red de Similitud (NetworkX)")
-            fig4.tight_layout()
-            self.draw_in_frame(self.charts_portfolio['network_frame'], fig4)
+            ax5.set_title("Gráfico MoW 5: Red de Similitud (NetworkX)")
+            fig5.tight_layout()
+            self.draw_in_frame(self.charts_portfolio['network_frame'], fig5)
             
         except Exception as e:
             self.set_status(f"Error al dibujar gráficos MoW: {e}")
@@ -1542,7 +1556,7 @@ class MainApplication(btk.Window):
             
             # 2. Mapa de Calor (solo del baseline t0)
             fig2, ax2 = plt.subplots(figsize=(6, 5))
-            sns.heatmap(pbt_a, annot=True, fmt=".2f", cmap='RdYLGn', center=0, vmin=-3, vmax=3,
+            sns.heatmap(pbt_a, annot=True, fmt=".2f", cmap='RdYlGn', center=0, vmin=-3, vmax=3,
                         xticklabels=VME_LABELS, yticklabels=D_LABELS, ax=ax2)
             ax2.set_title(f"Mapa de Calor (Baseline 'A') - {project_name}")
             fig2.tight_layout()
@@ -1588,31 +1602,12 @@ class MainApplication(btk.Window):
             self.tree_strategies.insert("", "end", values=(s['id'], s['name'], f"{s['cr']:.4f}"))
 
     def load_ollama_models_threaded(self):
-        """Inicia un hilo para cargar la lista de modelos de Ollama."""
-        self.set_status("Contactando a Ollama para listar modelos...")
-        threading.Thread(target=self.run_ollama_list_thread, daemon=True).start()
-        self._after_job_id = self.after(100, self.check_analysis_queue)
-        
-    def run_ollama_list_thread(self):
-        """(Función Hilo) Llama a la API de Ollama 'tags'."""
-        service = AnalysisService()
-        response = service.call_ollama('tags', {})
-        self.analysis_queue.put({"type": "ollama_list", "data": response})
+        """(v3.1) Esta función ya no es necesaria."""
+        pass
         
     def on_ollama_model_select(self, event=None):
-        """Muestra la info del modelo seleccionado."""
-        model_name = self.cb_ollama_model.get()
-        if not model_name: return
-        
-        self.set_status(f"Obteniendo info del modelo: {model_name}...")
-        payload = {"name": model_name}
-        threading.Thread(target=self.run_ollama_show_thread, args=(payload,), daemon=True).start()
-
-    def run_ollama_show_thread(self, payload: Dict):
-        """(Función Hilo) Llama a la API de Ollama 'show'."""
-        service = AnalysisService()
-        response = service.call_ollama('show', payload)
-        self.analysis_queue.put({"type": "ollama_show", "data": response})
+        """(v3.1) Esta función ya no es necesaria."""
+        pass
 
     def set_status(self, msg: str):
         """Actualiza la barra de estado."""
@@ -1645,19 +1640,19 @@ class MainApplication(btk.Window):
 # ======================================================================
 if __name__ == "__main__":
     
-    # --- Validar Conexión a Ollama (rápido) ---
-    try:
-        requests.get(OLLAMA_API_URL, timeout=1)
-        print("Conexión inicial con Ollama establecida.")
-    except requests.exceptions.ConnectionError:
-        print("ADVERTENCIA: No se pudo conectar a Ollama.")
-        print(f"La pestaña 'Análisis IA' fallará. Asegúrate de que Ollama esté corriendo en {OLLAMA_API_URL}")
+    # --- Validar Conexión a Google AI (rápido) ---
+    if GOOGLE_API_KEY == "TU_API_KEY_AQUI":
+        print("ADVERTENCIA: No se encontró la Google AI API Key en 'm9d.ini'.")
+        print("La pestaña 'Análisis IA' fallará.")
+        print("Por favor, obtén una clave en https://aistudio.google.com/ y pégala en 'm9d.ini'.")
+    else:
+        print("Conexión con Google AI API Key establecida.")
 
     # --- Inicializar DB y App ---
     try:
         # Cargar configuración de DB desde el .ini
         db_conn_string = DB_CONFIG[USE_DB_TYPE]
-        db_manager = DatabaseManager(db_type=USE_DB_TYPE, config={f"{USE_DB_TYPE}_conn_string": db_conn_string})
+        db_manager = DatabaseManager(db_type=USE_DB_TYPE, config={USE_DB_TYPE: db_conn_string})
         
         app = MainApplication(db_manager)
         app.protocol("WM_DELETE_WINDOW", app.on_closing)
