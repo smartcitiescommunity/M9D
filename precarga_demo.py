@@ -1,5 +1,5 @@
 # ======================================================================
-# SCRIPT DE PRECARGA DEMO PARA MoW
+# SCRIPT DE PRECARGA DEMO PARA MoW (v4.0)
 # ======================================================================
 # Propósito: Inyectar datos de demostración en la base de datos
 #            para resolver el problema de "arranque en frío".
@@ -12,6 +12,7 @@ import configparser
 import sqlalchemy as db
 from sqlalchemy import create_engine, Table, Column, Integer, String, Float, MetaData, ForeignKey, Text as DBText
 from typing import List, Dict, Tuple, Any
+import os
 
 # --- Copia de Clases Lógicas Necesarias ---
 # (Duplicamos las clases aquí para que el script sea 100% standalone)
@@ -21,7 +22,7 @@ D_LABELS = [
     "D1: Propósito", "D2: Procesos", "D3: Tecnología", "D4: Comunidad",
     "D5: Solución", "D6: Territorio", "D7: Academia", "D8: S. Privado", "D9: S. Público"
 ]
-T_LABELS_SHORT = ["T1(P+)", "T2(P-)", "T3(PN)", "T4(R+)", "T5(R-)", "T6(RN)", "T7(F+)", "T8(F-)", "T9(FN)"]
+T_LABELS_SHORT = ["T1(P-)", "T2(PN)", "T3(P+)", "T4(R-)", "T5(RN)", "T6(R+)", "T7(F-)", "T8(FN)", "T9(F+)"]
 RI_SAATY = { 3: 0.58, 9: 1.45 }
 
 class AHPValidator:
@@ -165,7 +166,7 @@ class DatabaseManager:
 
 # --- SCRIPT PRINCIPAL DE PRECARGA ---
 def precargar_demo():
-    print("Iniciando precarga de datos demo...")
+    print("Iniciando precarga de datos demo (v4.0)...")
     
     # 1. Leer el archivo de configuración .ini
     config = configparser.ConfigParser()
@@ -179,17 +180,25 @@ def precargar_demo():
     
     db_type = config.get('Database', 'db_type', fallback='sqlite')
     db_config_dict = {}
+    db_conn_string = ""
     if db_type == 'mysql':
         db_config_dict['mysql_user'] = config.get('Database', 'mysql_user')
         db_config_dict['mysql_pass'] = config.get('Database', 'mysql_pass')
         db_config_dict['mysql_host'] = config.get('Database', 'mysql_host')
         db_config_dict['mysql_port'] = config.get('Database', 'mysql_port')
         db_config_dict['mysql_db_name'] = config.get('Database', 'mysql_db_name')
+        db_conn_string = (
+            f"mysql+pymysql://{db_config_dict['mysql_user']}:{db_config_dict['mysql_pass']}@"
+            f"{db_config_dict['mysql_host']}:{db_config_dict['mysql_port']}/"
+            f"{db_config_dict['mysql_db_name']}"
+        )
     else: # sqlite por defecto
-        db_config_dict['sqlite_db_name'] = config.get('Database', 'sqlite_db_name', fallback='mow_portfolio_v2.db')
+        db_config_dict['sqlite_db_name'] = config.get('Database', 'sqlite_db_name', fallback='mow_portfolio_v4.db')
+        db_conn_string = f"sqlite:///{db_config_dict['sqlite_db_name']}"
 
     try:
-        db_manager = DatabaseManager(db_type, db_config_dict)
+        db_manager = DatabaseManager(db_type, {db_type: db_conn_string})
+        
     except Exception as e:
         print(f"Error fatal al conectar con la DB: {e}")
         return
@@ -230,7 +239,8 @@ def precargar_demo():
         
         db_manager.close()
         print("\n¡ÉXITO! La base de datos ha sido precargada con datos de demostración.")
-        print("Ya puedes ejecutar la aplicación principal 'mow_app_v3_0.py'.")
+        print(f"Archivo de DB: {config.get('Database', 'sqlite_db_name')}")
+        print("Ya puedes ejecutar la aplicación principal 'mow_app_v4_0.py'.")
         
     except Exception as e:
         print(f"\nERROR DURANTE LA PRECARGA: {e}")
